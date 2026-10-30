@@ -145,6 +145,7 @@ namespace DynamicIslandMedia.ViewModels
                     {
                         _settings.PinnedLeft = null;
                         _settings.PinnedTop = null;
+                        _settings.PinnedExpandDirection = null;
                     }
                     _settings.Save();
                     OnPropertyChanged();
@@ -327,6 +328,7 @@ namespace DynamicIslandMedia.ViewModels
             IsPinned = false;
             _settings.PinnedLeft = null;
             _settings.PinnedTop = null;
+            _settings.PinnedExpandDirection = null;
             _settings.Save();
             RequestResetPosition?.Invoke();
         }

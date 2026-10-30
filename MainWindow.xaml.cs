@@ -105,10 +105,10 @@ namespace DynamicIslandMedia
 			this.UpdateProgressFill();
 		}
 
-		private void UpdateIslandAlignment()
+		private void ApplyExpandDirection(bool expandDownwards)
 		{
-			bool isTop = string.Equals(this._viewModel.IslandPosition, "Top", StringComparison.OrdinalIgnoreCase);
-			if (isTop)
+			this._isExpandingDownwards = expandDownwards;
+			if (expandDownwards)
 			{
 				if (this.IslandRootGrid != null)
 				{
@@ -166,9 +166,166 @@ namespace DynamicIslandMedia
 			}
 		}
 
+		private void UpdateIslandAlignment()
+		{
+			bool isTop = string.Equals(this._viewModel.IslandPosition, "Top", StringComparison.OrdinalIgnoreCase);
+			this.ApplyExpandDirection(isTop);
+		}
+
+		private void AutoDetectAndApplyExpandDirection()
+		{
+			try
+			{
+				IntPtr handle = new WindowInteropHelper(this).Handle;
+				var screen = (handle != IntPtr.Zero)
+					? System.Windows.Forms.Screen.FromHandle(handle)
+					: System.Windows.Forms.Screen.PrimaryScreen;
+
+				if (screen == null) return;
+				var wa = screen.WorkingArea;
+				double waLeft = wa.Left;
+				double waTop = wa.Top;
+				double waRight = wa.Right;
+				double waBottom = wa.Bottom;
+
+				double cardHeight = (this.IslandBorder != null && this.IslandBorder.ActualHeight > 0)
+					? this.IslandBorder.ActualHeight
+					: (this._viewModel.IsExpanded ? 155.0 : 38.0);
+
+				double cardWidth = (this.IslandBorder != null && this.IslandBorder.ActualWidth > 0)
+					? this.IslandBorder.ActualWidth
+					: (this._viewModel.IsExpanded ? 390.0 : 240.0);
+
+				// Determine current card visual position on screen
+				double cardScreenTop;
+				double cardScreenBottom;
+
+				if (this._isExpandingDownwards)
+				{
+					cardScreenTop = base.Top + 40.0;
+					cardScreenBottom = cardScreenTop + cardHeight;
+				}
+				else
+				{
+					cardScreenBottom = base.Top + 260.0;
+					cardScreenTop = cardScreenBottom - cardHeight;
+				}
+
+				// Calculate available space in both directions
+				double spaceBelow = waBottom - cardScreenTop;
+				double spaceAbove = cardScreenBottom - waTop;
+
+				const double requiredSpace = 165.0; // 155px expanded height + 10px screen edge buffer
+				bool hasSpaceBelow = spaceBelow >= requiredSpace;
+				bool hasSpaceAbove = spaceAbove >= requiredSpace;
+
+				bool shouldExpandDownwards;
+
+				if (hasSpaceBelow && !hasSpaceAbove)
+				{
+					shouldExpandDownwards = true;
+				}
+				else if (!hasSpaceBelow && hasSpaceAbove)
+				{
+					shouldExpandDownwards = false;
+				}
+				else if (hasSpaceBelow && hasSpaceAbove)
+				{
+					// Both have space: pick whichever has more space / natural hemisphere
+					double screenCenterY = waTop + (waBottom - waTop) / 2.0;
+					double cardCenterY = (cardScreenTop + cardScreenBottom) / 2.0;
+					shouldExpandDownwards = cardCenterY < screenCenterY;
+				}
+				else
+				{
+					// Constrained on both sides: pick whichever has more space
+					shouldExpandDownwards = spaceBelow >= spaceAbove;
+				}
+
+				// If direction changed, adjust base.Top so the card remains in the EXACT same visual position
+				if (shouldExpandDownwards != this._isExpandingDownwards)
+				{
+					if (shouldExpandDownwards)
+					{
+						// Switching to Downward expansion (Top mode): anchor at cardScreenTop
+						base.Top = cardScreenTop - 40.0;
+					}
+					else
+					{
+						// Switching to Upward expansion (Bottom mode): anchor at cardScreenBottom
+						base.Top = cardScreenBottom - 260.0;
+					}
+
+					this.ApplyExpandDirection(shouldExpandDownwards);
+				}
+
+				// Clamp to ensure the card stays within monitor working area bounds
+				this.ClampWindowToWorkArea(waLeft, waTop, waRight, waBottom, cardWidth);
+			}
+			catch
+			{
+			}
+		}
+
+		private void ClampWindowToWorkArea(double waLeft, double waTop, double waRight, double waBottom, double cardWidth)
+		{
+			// Horizontal clamp:
+			double cardLeftOffset = (base.Width - cardWidth) / 2.0;
+			double cardScreenLeft = base.Left + cardLeftOffset;
+			double cardScreenRight = cardScreenLeft + cardWidth;
+
+			if (cardScreenLeft < waLeft + 8.0)
+			{
+				base.Left = waLeft + 8.0 - cardLeftOffset;
+			}
+			else if (cardScreenRight > waRight - 8.0)
+			{
+				base.Left = waRight - 8.0 - cardLeftOffset - cardWidth;
+			}
+
+			// Vertical clamp:
+			if (this._isExpandingDownwards)
+			{
+				double cardScreenTop = base.Top + 40.0;
+				double expandedScreenBottom = cardScreenTop + 155.0;
+
+				if (cardScreenTop < waTop + 8.0)
+				{
+					base.Top = waTop + 8.0 - 40.0;
+				}
+				else if (expandedScreenBottom > waBottom - 8.0)
+				{
+					base.Top = waBottom - 8.0 - 195.0;
+				}
+			}
+			else
+			{
+				double cardScreenBottom = base.Top + 260.0;
+				double expandedScreenTop = cardScreenBottom - 155.0;
+
+				if (expandedScreenTop < waTop + 8.0)
+				{
+					base.Top = waTop + 8.0 - 105.0;
+				}
+				else if (cardScreenBottom > waBottom - 8.0)
+				{
+					base.Top = waBottom - 8.0 - 260.0;
+				}
+			}
+		}
+
 		private void RestorePinnedPosition()
 		{
-			this.UpdateIslandAlignment();
+			if (!string.IsNullOrEmpty(this._settings.PinnedExpandDirection))
+			{
+				bool isTop = string.Equals(this._settings.PinnedExpandDirection, "Top", StringComparison.OrdinalIgnoreCase);
+				this.ApplyExpandDirection(isTop);
+			}
+			else
+			{
+				this.UpdateIslandAlignment();
+			}
+
 			if (this._settings.PinnedLeft.HasValue && this._settings.PinnedTop.HasValue)
 			{
 				double left = this._settings.PinnedLeft.Value;
@@ -184,6 +341,7 @@ namespace DynamicIslandMedia
 				{
 					base.Left = left;
 					base.Top = top;
+					this.AutoDetectAndApplyExpandDirection();
 					return;
 				}
 			}
@@ -193,10 +351,11 @@ namespace DynamicIslandMedia
 		public void RepositionWindow()
 		{
 			this._hasCustomPosition = false;
-			this.UpdateIslandAlignment();
+			bool isTop = string.Equals(this._viewModel.IslandPosition, "Top", StringComparison.OrdinalIgnoreCase);
+			this.ApplyExpandDirection(isTop);
 			Rect workArea = SystemParameters.WorkArea;
 			base.Left = workArea.Left + (workArea.Width - base.Width) / 2.0;
-			if (string.Equals(this._viewModel.IslandPosition, "Top", StringComparison.OrdinalIgnoreCase))
+			if (isTop)
 			{
 				base.Top = workArea.Top + this._viewModel.EdgeDistance - IslandTopPadding;
 			}
@@ -209,10 +368,12 @@ namespace DynamicIslandMedia
 		private void OnWindowDragged()
 		{
 			this._hasCustomPosition = true;
+			this.AutoDetectAndApplyExpandDirection();
 			if (this._viewModel.IsPinned)
 			{
 				this._settings.PinnedLeft = base.Left;
 				this._settings.PinnedTop = base.Top;
+				this._settings.PinnedExpandDirection = this._isExpandingDownwards ? "Top" : "Bottom";
 				this._settings.Save();
 			}
 		}
@@ -243,6 +404,7 @@ namespace DynamicIslandMedia
 					{
 						this._settings.PinnedLeft = base.Left;
 						this._settings.PinnedTop = base.Top;
+						this._settings.PinnedExpandDirection = this._isExpandingDownwards ? "Top" : "Bottom";
 						this._settings.IsPositionPinned = true;
 						this._settings.Save();
 					}
@@ -251,6 +413,7 @@ namespace DynamicIslandMedia
 						this._settings.IsPositionPinned = false;
 						this._settings.PinnedLeft = null;
 						this._settings.PinnedTop = null;
+						this._settings.PinnedExpandDirection = null;
 						this._settings.Save();
 						// DO NOT call RepositionWindow(): Keep the island placed right at its current location
 					}
@@ -532,6 +695,7 @@ namespace DynamicIslandMedia
 		private readonly FullscreenDetectionService _fullscreenDetector;
 		private bool _isHiddenByFullscreen;
 		private bool _hasCustomPosition;
+		private bool _isExpandingDownwards;
 		private Storyboard? _wave1;
 		private Storyboard? _wave2;
 		private Storyboard? _wave3;

@@ -45,6 +45,7 @@ namespace DynamicIslandMedia.Models
         public bool IsPositionPinned { get; set; } = false;
         public double? PinnedLeft { get; set; } = null;
         public double? PinnedTop { get; set; } = null;
+        public string? PinnedExpandDirection { get; set; } = null;
 
         // Legacy support in case old settings.json has TopMargin
         [JsonPropertyName("TopMargin")]
