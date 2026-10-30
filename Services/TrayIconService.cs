@@ -13,11 +13,13 @@ namespace DynamicIslandMedia.Services
         private readonly ToolStripMenuItem _statusItem;
         private readonly ToolStripMenuItem _toggleMasterItem;
         private readonly ToolStripMenuItem _toggleExpandItem;
+        private readonly ToolStripMenuItem _resetPositionItem;
         private readonly ToolStripMenuItem _settingsItem;
         private readonly ToolStripMenuItem _exitItem;
 
         public event Action? ToggleIslandRequested;
         public event Action? ToggleExpandRequested;
+        public event Action? ResetPositionRequested;
         public event Action? ShowSettingsRequested;
         public event Action? ExitRequested;
 
@@ -45,6 +47,7 @@ namespace DynamicIslandMedia.Services
 
             _toggleMasterItem = new ToolStripMenuItem("Turn Island OFF", null, (s, e) => ToggleIslandRequested?.Invoke());
             _toggleExpandItem = new ToolStripMenuItem("Expand / Collapse", null, (s, e) => ToggleExpandRequested?.Invoke());
+            _resetPositionItem = new ToolStripMenuItem("Reset Position to Default", null, (s, e) => ResetPositionRequested?.Invoke());
             _settingsItem = new ToolStripMenuItem("Settings...", null, (s, e) => ShowSettingsRequested?.Invoke());
             _exitItem = new ToolStripMenuItem("Exit", null, (s, e) => ExitRequested?.Invoke());
 
@@ -52,6 +55,7 @@ namespace DynamicIslandMedia.Services
             _contextMenu.Items.Add(new ToolStripSeparator());
             _contextMenu.Items.Add(_toggleMasterItem);
             _contextMenu.Items.Add(_toggleExpandItem);
+            _contextMenu.Items.Add(_resetPositionItem);
             _contextMenu.Items.Add(_settingsItem);
             _contextMenu.Items.Add(new ToolStripSeparator());
             _contextMenu.Items.Add(_exitItem);
@@ -78,6 +82,7 @@ namespace DynamicIslandMedia.Services
                 _toggleMasterItem.Text = isMasterEnabled ? "Turn Island OFF" : "Turn Island ON";
                 _toggleExpandItem.Text = isExpanded ? "Collapse to Pill" : "Expand Island";
                 _toggleExpandItem.Enabled = isMasterEnabled && isVisible;
+                _resetPositionItem.Enabled = isMasterEnabled;
 
                 if (!isMasterEnabled)
                 {

@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media.Animation;
+using DynamicIslandMedia.Models;
 using DynamicIslandMedia.Services;
 using DynamicIslandMedia.ViewModels;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
@@ -19,12 +20,14 @@ namespace DynamicIslandMedia
 		{
 			this.InitializeComponent();
 			this._viewModel = viewModel;
+			this._settings = viewModel.Settings;
 			base.DataContext = this._viewModel;
 			this._fullscreenDetector = new FullscreenDetectionService();
 			this._fullscreenDetector.FullscreenChanged += this.FullscreenDetector_FullscreenChanged;
 			base.Loaded += this.MainWindow_Loaded;
 			base.Closed += this.MainWindow_Closed;
 			this._viewModel.PropertyChanged += this.ViewModel_PropertyChanged;
+			this._viewModel.RequestResetPosition += () => { this.RepositionWindow(); };
 		}
 
 		[DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
@@ -71,7 +74,15 @@ namespace DynamicIslandMedia
 
 		private void MainWindow_Loaded(object sender, RoutedEventArgs e)
 		{
-			this.RepositionWindow();
+			if (this._viewModel.IsPinned && this._settings.PinnedLeft.HasValue && this._settings.PinnedTop.HasValue)
+			{
+				this._hasCustomPosition = true;
+				this.RestorePinnedPosition();
+			}
+			else
+			{
+				this.RepositionWindow();
+			}
 			this._fullscreenDetector.Start();
 			this._wave1 = (base.TryFindResource("WaveAnimation1") as Storyboard);
 			this._wave2 = (base.TryFindResource("WaveAnimation2") as Storyboard);
@@ -155,8 +166,33 @@ namespace DynamicIslandMedia
 			}
 		}
 
+		private void RestorePinnedPosition()
+		{
+			this.UpdateIslandAlignment();
+			if (this._settings.PinnedLeft.HasValue && this._settings.PinnedTop.HasValue)
+			{
+				double left = this._settings.PinnedLeft.Value;
+				double top = this._settings.PinnedTop.Value;
+
+				double vLeft = SystemParameters.VirtualScreenLeft;
+				double vTop = SystemParameters.VirtualScreenTop;
+				double vWidth = SystemParameters.VirtualScreenWidth;
+				double vHeight = SystemParameters.VirtualScreenHeight;
+
+				if (left >= vLeft - 100 && left <= vLeft + vWidth - 100 &&
+					top >= vTop - 50 && top <= vTop + vHeight - 50)
+				{
+					base.Left = left;
+					base.Top = top;
+					return;
+				}
+			}
+			this.RepositionWindow();
+		}
+
 		public void RepositionWindow()
 		{
+			this._hasCustomPosition = false;
 			this.UpdateIslandAlignment();
 			Rect workArea = SystemParameters.WorkArea;
 			base.Left = workArea.Left + (workArea.Width - base.Width) / 2.0;
@@ -167,6 +203,17 @@ namespace DynamicIslandMedia
 			else
 			{
 				base.Top = workArea.Bottom - this._viewModel.EdgeDistance - (base.Height - IslandBottomPadding);
+			}
+		}
+
+		private void OnWindowDragged()
+		{
+			this._hasCustomPosition = true;
+			if (this._viewModel.IsPinned)
+			{
+				this._settings.PinnedLeft = base.Left;
+				this._settings.PinnedTop = base.Top;
+				this._settings.Save();
 			}
 		}
 
@@ -188,6 +235,33 @@ namespace DynamicIslandMedia
 				if (propertyName == "IsVisible")
 				{
 					this.UpdateVisibility(this._viewModel.IsVisible);
+					return;
+				}
+				if (propertyName == "IsPinned")
+				{
+					if (this._viewModel.IsPinned)
+					{
+						this._settings.PinnedLeft = base.Left;
+						this._settings.PinnedTop = base.Top;
+						this._settings.IsPositionPinned = true;
+						this._settings.Save();
+					}
+					else
+					{
+						this._settings.IsPositionPinned = false;
+						this._settings.PinnedLeft = null;
+						this._settings.PinnedTop = null;
+						this._settings.Save();
+						// DO NOT call RepositionWindow(): Keep the island placed right at its current location
+					}
+					return;
+				}
+				if (propertyName == "IsMasterEnabled")
+				{
+					if (this._viewModel.IsMasterEnabled && !this._viewModel.IsPinned && this._hasCustomPosition)
+					{
+						this.RepositionWindow();
+					}
 					return;
 				}
 				if (propertyName == "EdgeDistance" || propertyName == "BottomMargin" || propertyName == "IslandPosition")
@@ -228,7 +302,6 @@ namespace DynamicIslandMedia
 				}
 				if (this._viewModel.IsVisible)
 				{
-					this.RepositionWindow();
 					this.Visibility = Visibility.Visible;
 					DoubleAnimation animation = new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(200.0));
 					this.BeginAnimation(UIElement.OpacityProperty, animation);
@@ -244,7 +317,6 @@ namespace DynamicIslandMedia
 			}
 			if (isVisible)
 			{
-				this.RepositionWindow();
 				base.Visibility = Visibility.Visible;
 				DoubleAnimation animation = new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(200.0));
 				base.BeginAnimation(UIElement.OpacityProperty, animation);
@@ -421,11 +493,17 @@ namespace DynamicIslandMedia
 				return;
 			}
 			this._viewModel.CancelCollapseTimer();
+			if (this._viewModel.IsPinned)
+			{
+				// User explicitly requested: when pin button is ON, do not let users move it by cursor
+				return;
+			}
 			if (e.ButtonState == MouseButtonState.Pressed)
 			{
 				try
 				{
 					base.DragMove();
+					this.OnWindowDragged();
 				}
 				catch
 				{
@@ -450,8 +528,10 @@ namespace DynamicIslandMedia
 		}
 
 		private readonly MainViewModel _viewModel;
+		private readonly AppSettings _settings;
 		private readonly FullscreenDetectionService _fullscreenDetector;
 		private bool _isHiddenByFullscreen;
+		private bool _hasCustomPosition;
 		private Storyboard? _wave1;
 		private Storyboard? _wave2;
 		private Storyboard? _wave3;

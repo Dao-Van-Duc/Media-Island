@@ -42,6 +42,10 @@ namespace DynamicIslandMedia.Models
         public bool AutoExpandOnHover { get; set; } = true;
         public bool StartWithWindows { get; set; } = false;
 
+        public bool IsPositionPinned { get; set; } = false;
+        public double? PinnedLeft { get; set; } = null;
+        public double? PinnedTop { get; set; } = null;
+
         // Legacy support in case old settings.json has TopMargin
         [JsonPropertyName("TopMargin")]
         public double? LegacyTopMargin

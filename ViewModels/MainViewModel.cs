@@ -27,6 +27,7 @@ namespace DynamicIslandMedia.ViewModels
         private double _edgeDistance = AppSettings.DefaultEdgeDistance;
 
         public event PropertyChangedEventHandler? PropertyChanged;
+        public event Action? RequestResetPosition;
 
         public MainViewModel(WindowsMediaService mediaService, AppSettings settings)
         {
@@ -35,6 +36,7 @@ namespace DynamicIslandMedia.ViewModels
             _islandPosition = _settings.IslandPosition;
             _edgeDistance = _settings.EdgeDistance;
             _isMasterEnabled = _settings.IsMasterEnabled;
+            _isPinned = _settings.IsPositionPinned;
 
             _collapseTimer = new DispatcherTimer
             {
@@ -43,7 +45,7 @@ namespace DynamicIslandMedia.ViewModels
             _collapseTimer.Tick += (s, e) =>
             {
                 _collapseTimer.Stop();
-                if (!IsPinned && IsExpanded)
+                if (IsExpanded)
                 {
                     IsExpanded = false;
                 }
@@ -138,10 +140,20 @@ namespace DynamicIslandMedia.ViewModels
                 if (_isPinned != value)
                 {
                     _isPinned = value;
+                    _settings.IsPositionPinned = value;
+                    if (!value)
+                    {
+                        _settings.PinnedLeft = null;
+                        _settings.PinnedTop = null;
+                    }
+                    _settings.Save();
                     OnPropertyChanged();
+                    OnPropertyChanged(nameof(PinButtonToolTip));
                 }
             }
         }
+
+        public string PinButtonToolTip => IsPinned ? "Position locked (Click to unlock moving)" : "Lock position on screen";
 
         public bool IsMasterEnabled
         {
@@ -303,11 +315,20 @@ namespace DynamicIslandMedia.ViewModels
 
         public void OnMouseLeaveIsland()
         {
-            if (!IsPinned && IsExpanded)
+            if (IsExpanded)
             {
                 _collapseTimer.Stop();
                 IsExpanded = false;
             }
+        }
+
+        public void ResetPositionToDefault()
+        {
+            IsPinned = false;
+            _settings.PinnedLeft = null;
+            _settings.PinnedTop = null;
+            _settings.Save();
+            RequestResetPosition?.Invoke();
         }
 
         public void CancelCollapseTimer()

@@ -70,6 +70,14 @@ namespace DynamicIslandMedia
                     });
                 };
 
+                _trayIconService.ResetPositionRequested += () =>
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        _viewModel.ResetPositionToDefault();
+                    });
+                };
+
                 _trayIconService.ShowSettingsRequested += () =>
                 {
                     Dispatcher.Invoke(() =>

@@ -1,6 +1,8 @@
 bin/
 obj/
 publish/
+publish-standalone/
+publish*/
 .vs/
 *.user
 *.suo

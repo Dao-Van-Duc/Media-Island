@@ -89,6 +89,7 @@ namespace DynamicIslandMedia
             AutoHideCheckBox.IsChecked = false;
             StartWithWindowsCheckBox.IsChecked = false;
             UpdateDistanceLabel();
+            _viewModel.ResetPositionToDefault();
         }
 
         private void ApplyButton_Click(object sender, RoutedEventArgs e)
