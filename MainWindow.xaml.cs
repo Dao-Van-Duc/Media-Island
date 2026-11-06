@@ -631,14 +631,17 @@ namespace DynamicIslandMedia
 				return;
 			}
 
-			// 4-stop wave: c1 -> c2 -> c1 -> c2 for organic waving motion
-			Color target1    = Color.FromArgb(140, c1.R, c1.G, c1.B);
-			Color targetMid1 = Color.FromArgb(130, c2.R, c2.G, c2.B);
-			Color targetMid2 = Color.FromArgb(120, c1.R, c1.G, c1.B);
-			Color target2    = Color.FromArgb(135, c2.R, c2.G, c2.B);
+			// Balanced liquid blend:
+			// Left side (~35%): Color 1 (Dominant, e.g. White) with clean, soft alpha
+			// Middle zone (~25%): Wide, smooth organic blend between Color 1 and Color 2
+			// Right side (40%+): Color 2 (Secondary, e.g. Pink) with rich, vibrant alpha and floating swell
+			Color target1    = Color.FromArgb(115, c1.R, c1.G, c1.B);
+			Color targetMid1 = Color.FromArgb(115, c1.R, c1.G, c1.B);
+			Color targetMid2 = Color.FromArgb(160, c2.R, c2.G, c2.B);
+			Color target2    = Color.FromArgb(165, c2.R, c2.G, c2.B);
 
-			// Radial swell: soft secondary pool of Color 2
-			Color radCenter  = Color.FromArgb(100, c2.R, c2.G, c2.B);
+			// Radial swell: rich, luminous pool of Color 2 on the right side (~40% of island)
+			Color radCenter  = Color.FromArgb(120, c2.R, c2.G, c2.B);
 			Color radEdge    = Color.FromArgb(0,   c2.R, c2.G, c2.B);
 
 			if (durationMs <= 0)
@@ -717,11 +720,13 @@ namespace DynamicIslandMedia
 				this.GradientScale.BeginAnimation(ScaleTransform.ScaleYProperty, breathe);
 			}
 
-			// 4. Wave offset animation — mid-stops slide back and forth for liquid current
+			// 4. Undulating wave blend offsets — StopMid1 (Color 1) and StopMid2 (Color 2)
+			// Mid1 waves between 0.24 and 0.40; Mid2 waves between 0.50 and 0.68.
+			// This ensures Color 2 commands at least 40% (up to 55%) of the island space while smoothly blending in the middle
 			if (this.ExpandedColorStopMid1 != null)
 			{
 				this.ExpandedColorStopMid1.BeginAnimation(GradientStop.OffsetProperty,
-					new DoubleAnimation(0.20, 0.48, TimeSpan.FromSeconds(6.2))
+					new DoubleAnimation(0.24, 0.40, TimeSpan.FromSeconds(6.2))
 					{
 						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
 					});
@@ -729,29 +734,29 @@ namespace DynamicIslandMedia
 			if (this.ExpandedColorStopMid2 != null)
 			{
 				this.ExpandedColorStopMid2.BeginAnimation(GradientStop.OffsetProperty,
-					new DoubleAnimation(0.52, 0.80, TimeSpan.FromSeconds(7.8))
+					new DoubleAnimation(0.50, 0.68, TimeSpan.FromSeconds(7.8))
 					{
 						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
 					});
 			}
 
-			// 5. Radial swell counter-drifts in opposite direction (8.4s X, 6.6s Y)
+			// 5. Radial swell over the Color 2 zone (right side) counter-drifts organically
 			if (this.RadialTranslate != null)
 			{
 				this.RadialTranslate.BeginAnimation(TranslateTransform.XProperty,
-					new DoubleAnimation(0.20, -0.20, TimeSpan.FromSeconds(8.4))
+					new DoubleAnimation(0.14, -0.14, TimeSpan.FromSeconds(8.4))
 					{
 						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
 					});
 				this.RadialTranslate.BeginAnimation(TranslateTransform.YProperty,
-					new DoubleAnimation(-0.14, 0.14, TimeSpan.FromSeconds(6.6))
+					new DoubleAnimation(-0.10, 0.10, TimeSpan.FromSeconds(6.6))
 					{
 						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
 					});
 			}
 			if (this.RadialScale != null)
 			{
-				var radScaleAnim = new DoubleAnimation(0.90, 1.28, TimeSpan.FromSeconds(9.2))
+				var radScaleAnim = new DoubleAnimation(0.95, 1.25, TimeSpan.FromSeconds(9.2))
 				{
 					AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
 				};

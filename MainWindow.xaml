@@ -244,8 +244,8 @@
 									</TransformGroup>
 								</LinearGradientBrush.RelativeTransform>
 								<GradientStop x:Name="ExpandedColorStop1"    Color="#00000000" Offset="0.00" />
-								<GradientStop x:Name="ExpandedColorStopMid1" Color="#00000000" Offset="0.35" />
-								<GradientStop x:Name="ExpandedColorStopMid2" Color="#00000000" Offset="0.65" />
+								<GradientStop x:Name="ExpandedColorStopMid1" Color="#00000000" Offset="0.32" />
+								<GradientStop x:Name="ExpandedColorStopMid2" Color="#00000000" Offset="0.58" />
 								<GradientStop x:Name="ExpandedColorStop2"    Color="#00000000" Offset="1.00" />
 							</LinearGradientBrush>
 						</Border.Background>
@@ -259,12 +259,12 @@
 						IsHitTestVisible="False">
 						<Border.Background>
 							<RadialGradientBrush x:Name="WaterRadialBrush"
-								Center="0.5,0.5" GradientOrigin="0.5,0.5"
+								Center="0.68,0.5" GradientOrigin="0.68,0.5"
 								RadiusX="0.75" RadiusY="0.75">
 								<RadialGradientBrush.RelativeTransform>
 									<TransformGroup>
 										<TranslateTransform x:Name="RadialTranslate" X="0" Y="0" />
-										<ScaleTransform x:Name="RadialScale" CenterX="0.5" CenterY="0.5" ScaleX="1.0" ScaleY="1.0" />
+										<ScaleTransform x:Name="RadialScale" CenterX="0.68" CenterY="0.5" ScaleX="1.0" ScaleY="1.0" />
 									</TransformGroup>
 								</RadialGradientBrush.RelativeTransform>
 								<GradientStop x:Name="RadialColorStop1" Color="#00000000" Offset="0.0" />
