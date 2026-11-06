@@ -1,6 +1,8 @@
 using System;
 using System.Windows.Media;
 using Windows.Media.Control;
+using Color = System.Windows.Media.Color;
+using DynamicIslandMedia.Helpers;
 
 namespace DynamicIslandMedia.Models
 {
@@ -14,6 +16,8 @@ namespace DynamicIslandMedia.Models
         public GlobalSystemMediaTransportControlsSessionPlaybackStatus PlaybackStatus { get; set; } =
             GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed;
         public ImageSource? AlbumArt { get; set; }
+        public Color PrimaryColor { get; set; } = AlbumColorExtractor.FallbackColor1;
+        public Color SecondaryColor { get; set; } = AlbumColorExtractor.FallbackColor2;
         public TimeSpan Position { get; set; } = TimeSpan.Zero;
         public TimeSpan Duration { get; set; } = TimeSpan.Zero;
         public bool HasActiveSession { get; set; } = false;

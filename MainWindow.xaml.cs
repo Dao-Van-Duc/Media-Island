@@ -5,7 +5,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
+using Color = System.Windows.Media.Color;
 using DynamicIslandMedia.Models;
 using DynamicIslandMedia.Services;
 using DynamicIslandMedia.ViewModels;
@@ -90,6 +92,18 @@ namespace DynamicIslandMedia
 			this._wave4 = (base.TryFindResource("WaveAnimation4") as Storyboard);
 			this.UpdateVisualizer(this._viewModel.IsPlaying);
 			this.UpdateProgressFill();
+			this.UpdateExpandedBackgroundColors(this._viewModel.PrimaryColor, this._viewModel.SecondaryColor, 0);
+			this.StartWaterMotion();
+			if (this.ExpandedIslandBackground != null)
+			{
+				this.ExpandedIslandBackground.Opacity = this._viewModel.IsExpanded ? 1.0 : 0.0;
+				this.ExpandedIslandBackground.CornerRadius = this._viewModel.IsExpanded ? new CornerRadius(21.0) : new CornerRadius(18.0);
+			}
+			if (this.ExpandedWaterLayer2 != null)
+			{
+				this.ExpandedWaterLayer2.Opacity = this._viewModel.IsExpanded ? 0.9 : 0.0;
+				this.ExpandedWaterLayer2.CornerRadius = this._viewModel.IsExpanded ? new CornerRadius(21.0) : new CornerRadius(18.0);
+			}
 			if (!this._viewModel.IsVisible)
 			{
 				base.Visibility = Visibility.Collapsed;
@@ -437,6 +451,11 @@ namespace DynamicIslandMedia
 					this.UpdateProgressFill();
 					return;
 				}
+				if (propertyName == "PrimaryColor" || propertyName == "SecondaryColor")
+				{
+					this.UpdateExpandedBackgroundColors(this._viewModel.PrimaryColor, this._viewModel.SecondaryColor);
+					return;
+				}
 				if (!(propertyName == "HasMedia"))
 				{
 					return;
@@ -522,6 +541,18 @@ namespace DynamicIslandMedia
 				};
 				this.IslandBorder.CornerRadius = new CornerRadius(22.0);
 				this.ShadowBorder.CornerRadius = new CornerRadius(22.0);
+				if (this.ExpandedIslandBackground != null)
+				{
+					this.ExpandedIslandBackground.CornerRadius = new CornerRadius(21.0);
+					this.ExpandedIslandBackground.BeginAnimation(UIElement.OpacityProperty,
+						new DoubleAnimation(this.ExpandedIslandBackground.Opacity, 1.0, TimeSpan.FromMilliseconds(240.0)) { EasingFunction = easingFunction });
+				}
+				if (this.ExpandedWaterLayer2 != null)
+				{
+					this.ExpandedWaterLayer2.CornerRadius = new CornerRadius(21.0);
+					this.ExpandedWaterLayer2.BeginAnimation(UIElement.OpacityProperty,
+						new DoubleAnimation(this.ExpandedWaterLayer2.Opacity, 0.9, TimeSpan.FromMilliseconds(300.0)) { EasingFunction = easingFunction });
+				}
 				this.IslandBorder.BeginAnimation(FrameworkElement.WidthProperty, animation);
 				this.IslandBorder.BeginAnimation(FrameworkElement.HeightProperty, animation2);
 				this.ShadowBorder.BeginAnimation(FrameworkElement.WidthProperty, animation);
@@ -538,6 +569,16 @@ namespace DynamicIslandMedia
 				this.CompactContentGrid.BeginAnimation(UIElement.OpacityProperty, animation5);
 			};
 			this.ExpandedContentGrid.BeginAnimation(UIElement.OpacityProperty, doubleAnimation2);
+			if (this.ExpandedIslandBackground != null)
+			{
+				this.ExpandedIslandBackground.BeginAnimation(UIElement.OpacityProperty,
+					new DoubleAnimation(this.ExpandedIslandBackground.Opacity, 0.0, TimeSpan.FromMilliseconds(160.0)) { EasingFunction = easingFunction });
+			}
+			if (this.ExpandedWaterLayer2 != null)
+			{
+				this.ExpandedWaterLayer2.BeginAnimation(UIElement.OpacityProperty,
+					new DoubleAnimation(this.ExpandedWaterLayer2.Opacity, 0.0, TimeSpan.FromMilliseconds(140.0)) { EasingFunction = easingFunction });
+			}
 			double toValue = (double)(this._viewModel.HasMedia ? 240 : 180);
 			DoubleAnimation animation3 = new DoubleAnimation(this.IslandBorder.ActualWidth, toValue, timeSpan)
 			{
@@ -549,6 +590,14 @@ namespace DynamicIslandMedia
 			};
 			this.IslandBorder.CornerRadius = new CornerRadius(19.0);
 			this.ShadowBorder.CornerRadius = new CornerRadius(19.0);
+			if (this.ExpandedIslandBackground != null)
+			{
+				this.ExpandedIslandBackground.CornerRadius = new CornerRadius(18.0);
+			}
+			if (this.ExpandedWaterLayer2 != null)
+			{
+				this.ExpandedWaterLayer2.CornerRadius = new CornerRadius(18.0);
+			}
 			this.IslandBorder.BeginAnimation(FrameworkElement.WidthProperty, animation3);
 			this.IslandBorder.BeginAnimation(FrameworkElement.HeightProperty, animation4);
 			this.ShadowBorder.BeginAnimation(FrameworkElement.WidthProperty, animation3);
@@ -573,6 +622,142 @@ namespace DynamicIslandMedia
 			this.IslandBorder.BeginAnimation(FrameworkElement.WidthProperty, animation);
 			this.ShadowBorder.BeginAnimation(FrameworkElement.WidthProperty, animation);
 			this.IslandHitBox.BeginAnimation(FrameworkElement.WidthProperty, animation);
+		}
+
+		private void UpdateExpandedBackgroundColors(Color c1, Color c2, int durationMs = 800)
+		{
+			if (this.ExpandedColorStop1 == null || this.ExpandedColorStop2 == null)
+			{
+				return;
+			}
+
+			// 4-stop wave: c1 -> c2 -> c1 -> c2 for organic waving motion
+			Color target1    = Color.FromArgb(140, c1.R, c1.G, c1.B);
+			Color targetMid1 = Color.FromArgb(130, c2.R, c2.G, c2.B);
+			Color targetMid2 = Color.FromArgb(120, c1.R, c1.G, c1.B);
+			Color target2    = Color.FromArgb(135, c2.R, c2.G, c2.B);
+
+			// Radial swell: soft secondary pool of Color 2
+			Color radCenter  = Color.FromArgb(100, c2.R, c2.G, c2.B);
+			Color radEdge    = Color.FromArgb(0,   c2.R, c2.G, c2.B);
+
+			if (durationMs <= 0)
+			{
+				this.ExpandedColorStop1.Color = target1;
+				if (this.ExpandedColorStopMid1 != null) this.ExpandedColorStopMid1.Color = targetMid1;
+				if (this.ExpandedColorStopMid2 != null) this.ExpandedColorStopMid2.Color = targetMid2;
+				this.ExpandedColorStop2.Color = target2;
+				if (this.RadialColorStop1 != null) this.RadialColorStop1.Color = radCenter;
+				if (this.RadialColorStop2 != null) this.RadialColorStop2.Color = radEdge;
+				return;
+			}
+
+			CubicEase ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+			TimeSpan dur = TimeSpan.FromMilliseconds(durationMs);
+
+			this.ExpandedColorStop1.BeginAnimation(GradientStop.ColorProperty,    new ColorAnimation(target1,    dur) { EasingFunction = ease });
+			if (this.ExpandedColorStopMid1 != null)
+			{
+				this.ExpandedColorStopMid1.BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(targetMid1, dur) { EasingFunction = ease });
+			}
+			if (this.ExpandedColorStopMid2 != null)
+			{
+				this.ExpandedColorStopMid2.BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(targetMid2, dur) { EasingFunction = ease });
+			}
+			this.ExpandedColorStop2.BeginAnimation(GradientStop.ColorProperty,    new ColorAnimation(target2,    dur) { EasingFunction = ease });
+			if (this.RadialColorStop1 != null)
+			{
+				this.RadialColorStop1.BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(radCenter, dur) { EasingFunction = ease });
+			}
+			if (this.RadialColorStop2 != null)
+			{
+				this.RadialColorStop2.BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(radEdge,   dur) { EasingFunction = ease });
+			}
+		}
+
+		private void StartWaterMotion()
+		{
+			SineEase sine = new SineEase { EasingMode = EasingMode.EaseInOut };
+
+			// 1. Organic angle rotation — slow wave tilt (10.5s period)
+			if (this.GradientRotate != null)
+			{
+				var anim = new DoubleAnimation(-18.0, 18.0, TimeSpan.FromSeconds(10.5))
+				{
+					AutoReverse = true,
+					RepeatBehavior = RepeatBehavior.Forever,
+					EasingFunction = sine
+				};
+				this.GradientRotate.BeginAnimation(RotateTransform.AngleProperty, anim);
+			}
+
+			// 2. Horizontal liquid drift (7.2s), vertical swell (8.8s) — incommensurate for no-repeat pattern
+			if (this.GradientTranslate != null)
+			{
+				this.GradientTranslate.BeginAnimation(TranslateTransform.XProperty,
+					new DoubleAnimation(-0.14, 0.14, TimeSpan.FromSeconds(7.2))
+					{
+						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
+					});
+				this.GradientTranslate.BeginAnimation(TranslateTransform.YProperty,
+					new DoubleAnimation(-0.10, 0.10, TimeSpan.FromSeconds(8.8))
+					{
+						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
+					});
+			}
+
+			// 3. Breathing scale (8.0s) — gentle expansion and contraction
+			if (this.GradientScale != null)
+			{
+				var breathe = new DoubleAnimation(1.0, 1.20, TimeSpan.FromSeconds(8.0))
+				{
+					AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
+				};
+				this.GradientScale.BeginAnimation(ScaleTransform.ScaleXProperty, breathe);
+				this.GradientScale.BeginAnimation(ScaleTransform.ScaleYProperty, breathe);
+			}
+
+			// 4. Wave offset animation — mid-stops slide back and forth for liquid current
+			if (this.ExpandedColorStopMid1 != null)
+			{
+				this.ExpandedColorStopMid1.BeginAnimation(GradientStop.OffsetProperty,
+					new DoubleAnimation(0.20, 0.48, TimeSpan.FromSeconds(6.2))
+					{
+						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
+					});
+			}
+			if (this.ExpandedColorStopMid2 != null)
+			{
+				this.ExpandedColorStopMid2.BeginAnimation(GradientStop.OffsetProperty,
+					new DoubleAnimation(0.52, 0.80, TimeSpan.FromSeconds(7.8))
+					{
+						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
+					});
+			}
+
+			// 5. Radial swell counter-drifts in opposite direction (8.4s X, 6.6s Y)
+			if (this.RadialTranslate != null)
+			{
+				this.RadialTranslate.BeginAnimation(TranslateTransform.XProperty,
+					new DoubleAnimation(0.20, -0.20, TimeSpan.FromSeconds(8.4))
+					{
+						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
+					});
+				this.RadialTranslate.BeginAnimation(TranslateTransform.YProperty,
+					new DoubleAnimation(-0.14, 0.14, TimeSpan.FromSeconds(6.6))
+					{
+						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
+					});
+			}
+			if (this.RadialScale != null)
+			{
+				var radScaleAnim = new DoubleAnimation(0.90, 1.28, TimeSpan.FromSeconds(9.2))
+				{
+					AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
+				};
+				this.RadialScale.BeginAnimation(ScaleTransform.ScaleXProperty, radScaleAnim);
+				this.RadialScale.BeginAnimation(ScaleTransform.ScaleYProperty, radScaleAnim);
+			}
 		}
 
 		private void UpdateVisualizer(bool isPlaying)

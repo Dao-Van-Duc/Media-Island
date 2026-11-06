@@ -241,6 +241,10 @@ namespace DynamicIslandMedia.Services
                     info.AlbumArt = IconHelper.GetFallbackAlbumArt();
                 }
 
+                var (c1, c2) = AlbumColorExtractor.ExtractColors(info.AlbumArt);
+                info.PrimaryColor = c1;
+                info.SecondaryColor = c2;
+
                 CurrentMedia = info;
 
                 if (isPlaying)

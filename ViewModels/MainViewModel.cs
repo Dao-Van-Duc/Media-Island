@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using System.Windows.Media;
+using Color = System.Windows.Media.Color;
 using System.Windows.Threading;
 using DynamicIslandMedia.Helpers;
 using DynamicIslandMedia.Models;
@@ -112,8 +113,13 @@ namespace DynamicIslandMedia.ViewModels
                 OnPropertyChanged(nameof(ProgressPercent));
                 OnPropertyChanged(nameof(PositionString));
                 OnPropertyChanged(nameof(DurationString));
+                OnPropertyChanged(nameof(PrimaryColor));
+                OnPropertyChanged(nameof(SecondaryColor));
             }
         }
+
+        public Color PrimaryColor => CurrentMedia.PrimaryColor;
+        public Color SecondaryColor => CurrentMedia.SecondaryColor;
 
         public bool IsExpanded
         {
