@@ -93,16 +93,25 @@ namespace DynamicIslandMedia
 			this.UpdateVisualizer(this._viewModel.IsPlaying);
 			this.UpdateProgressFill();
 			this.UpdateExpandedBackgroundColors(this._viewModel.PrimaryColor, this._viewModel.SecondaryColor, 0);
-			this.StartWaterMotion();
 			if (this.ExpandedIslandBackground != null)
 			{
+				this.ExpandedIslandBackground.Visibility = this._viewModel.IsExpanded ? Visibility.Visible : Visibility.Collapsed;
 				this.ExpandedIslandBackground.Opacity = this._viewModel.IsExpanded ? 1.0 : 0.0;
 				this.ExpandedIslandBackground.CornerRadius = this._viewModel.IsExpanded ? new CornerRadius(21.0) : new CornerRadius(18.0);
 			}
 			if (this.ExpandedWaterLayer2 != null)
 			{
+				this.ExpandedWaterLayer2.Visibility = this._viewModel.IsExpanded ? Visibility.Visible : Visibility.Collapsed;
 				this.ExpandedWaterLayer2.Opacity = this._viewModel.IsExpanded ? 0.9 : 0.0;
 				this.ExpandedWaterLayer2.CornerRadius = this._viewModel.IsExpanded ? new CornerRadius(21.0) : new CornerRadius(18.0);
+			}
+			if (this._viewModel.IsExpanded)
+			{
+				this.StartWaterMotion();
+			}
+			else
+			{
+				this.StopWaterMotion();
 			}
 			if (!this._viewModel.IsVisible)
 			{
@@ -451,9 +460,9 @@ namespace DynamicIslandMedia
 					this.UpdateProgressFill();
 					return;
 				}
-				if (propertyName == "PrimaryColor" || propertyName == "SecondaryColor")
+				if (propertyName == "PrimaryColor" || propertyName == "SecondaryColor" || propertyName == "CurrentMedia" || propertyName == "AlbumArt")
 				{
-					this.UpdateExpandedBackgroundColors(this._viewModel.PrimaryColor, this._viewModel.SecondaryColor);
+					this.UpdateExpandedBackgroundColors(this._viewModel.PrimaryColor, this._viewModel.SecondaryColor, this._viewModel.IsExpanded ? 800 : 0);
 					return;
 				}
 				if (!(propertyName == "HasMedia"))
@@ -541,18 +550,22 @@ namespace DynamicIslandMedia
 				};
 				this.IslandBorder.CornerRadius = new CornerRadius(22.0);
 				this.ShadowBorder.CornerRadius = new CornerRadius(22.0);
+				this.UpdateExpandedBackgroundColors(this._viewModel.PrimaryColor, this._viewModel.SecondaryColor, 0);
 				if (this.ExpandedIslandBackground != null)
 				{
+					this.ExpandedIslandBackground.Visibility = Visibility.Visible;
 					this.ExpandedIslandBackground.CornerRadius = new CornerRadius(21.0);
 					this.ExpandedIslandBackground.BeginAnimation(UIElement.OpacityProperty,
 						new DoubleAnimation(this.ExpandedIslandBackground.Opacity, 1.0, TimeSpan.FromMilliseconds(240.0)) { EasingFunction = easingFunction });
 				}
 				if (this.ExpandedWaterLayer2 != null)
 				{
+					this.ExpandedWaterLayer2.Visibility = Visibility.Visible;
 					this.ExpandedWaterLayer2.CornerRadius = new CornerRadius(21.0);
 					this.ExpandedWaterLayer2.BeginAnimation(UIElement.OpacityProperty,
 						new DoubleAnimation(this.ExpandedWaterLayer2.Opacity, 0.9, TimeSpan.FromMilliseconds(300.0)) { EasingFunction = easingFunction });
 				}
+				this.StartWaterMotion();
 				this.IslandBorder.BeginAnimation(FrameworkElement.WidthProperty, animation);
 				this.IslandBorder.BeginAnimation(FrameworkElement.HeightProperty, animation2);
 				this.ShadowBorder.BeginAnimation(FrameworkElement.WidthProperty, animation);
@@ -571,8 +584,23 @@ namespace DynamicIslandMedia
 			this.ExpandedContentGrid.BeginAnimation(UIElement.OpacityProperty, doubleAnimation2);
 			if (this.ExpandedIslandBackground != null)
 			{
-				this.ExpandedIslandBackground.BeginAnimation(UIElement.OpacityProperty,
-					new DoubleAnimation(this.ExpandedIslandBackground.Opacity, 0.0, TimeSpan.FromMilliseconds(160.0)) { EasingFunction = easingFunction });
+				DoubleAnimation bgFadeOut = new DoubleAnimation(this.ExpandedIslandBackground.Opacity, 0.0, TimeSpan.FromMilliseconds(160.0))
+				{
+					EasingFunction = easingFunction
+				};
+				bgFadeOut.Completed += delegate
+				{
+					if (!this._viewModel.IsExpanded)
+					{
+						this.ExpandedIslandBackground.Visibility = Visibility.Collapsed;
+						if (this.ExpandedWaterLayer2 != null)
+						{
+							this.ExpandedWaterLayer2.Visibility = Visibility.Collapsed;
+						}
+						this.StopWaterMotion();
+					}
+				};
+				this.ExpandedIslandBackground.BeginAnimation(UIElement.OpacityProperty, bgFadeOut);
 			}
 			if (this.ExpandedWaterLayer2 != null)
 			{
@@ -646,12 +674,30 @@ namespace DynamicIslandMedia
 
 			if (durationMs <= 0)
 			{
+				this.ExpandedColorStop1.BeginAnimation(GradientStop.ColorProperty, null);
 				this.ExpandedColorStop1.Color = target1;
-				if (this.ExpandedColorStopMid1 != null) this.ExpandedColorStopMid1.Color = targetMid1;
-				if (this.ExpandedColorStopMid2 != null) this.ExpandedColorStopMid2.Color = targetMid2;
+				if (this.ExpandedColorStopMid1 != null)
+				{
+					this.ExpandedColorStopMid1.BeginAnimation(GradientStop.ColorProperty, null);
+					this.ExpandedColorStopMid1.Color = targetMid1;
+				}
+				if (this.ExpandedColorStopMid2 != null)
+				{
+					this.ExpandedColorStopMid2.BeginAnimation(GradientStop.ColorProperty, null);
+					this.ExpandedColorStopMid2.Color = targetMid2;
+				}
+				this.ExpandedColorStop2.BeginAnimation(GradientStop.ColorProperty, null);
 				this.ExpandedColorStop2.Color = target2;
-				if (this.RadialColorStop1 != null) this.RadialColorStop1.Color = radCenter;
-				if (this.RadialColorStop2 != null) this.RadialColorStop2.Color = radEdge;
+				if (this.RadialColorStop1 != null)
+				{
+					this.RadialColorStop1.BeginAnimation(GradientStop.ColorProperty, null);
+					this.RadialColorStop1.Color = radCenter;
+				}
+				if (this.RadialColorStop2 != null)
+				{
+					this.RadialColorStop2.BeginAnimation(GradientStop.ColorProperty, null);
+					this.RadialColorStop2.Color = radEdge;
+				}
 				return;
 			}
 
@@ -762,6 +808,42 @@ namespace DynamicIslandMedia
 				};
 				this.RadialScale.BeginAnimation(ScaleTransform.ScaleXProperty, radScaleAnim);
 				this.RadialScale.BeginAnimation(ScaleTransform.ScaleYProperty, radScaleAnim);
+			}
+		}
+
+		private void StopWaterMotion()
+		{
+			if (this.GradientRotate != null)
+			{
+				this.GradientRotate.BeginAnimation(RotateTransform.AngleProperty, null);
+			}
+			if (this.GradientTranslate != null)
+			{
+				this.GradientTranslate.BeginAnimation(TranslateTransform.XProperty, null);
+				this.GradientTranslate.BeginAnimation(TranslateTransform.YProperty, null);
+			}
+			if (this.GradientScale != null)
+			{
+				this.GradientScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+				this.GradientScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+			}
+			if (this.ExpandedColorStopMid1 != null)
+			{
+				this.ExpandedColorStopMid1.BeginAnimation(GradientStop.OffsetProperty, null);
+			}
+			if (this.ExpandedColorStopMid2 != null)
+			{
+				this.ExpandedColorStopMid2.BeginAnimation(GradientStop.OffsetProperty, null);
+			}
+			if (this.RadialTranslate != null)
+			{
+				this.RadialTranslate.BeginAnimation(TranslateTransform.XProperty, null);
+				this.RadialTranslate.BeginAnimation(TranslateTransform.YProperty, null);
+			}
+			if (this.RadialScale != null)
+			{
+				this.RadialScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+				this.RadialScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
 			}
 		}
 

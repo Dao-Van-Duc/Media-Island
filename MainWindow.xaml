@@ -201,7 +201,7 @@
 				Width="240"
 				Height="38"
 				CornerRadius="19"
-				Background="#B30D0D11"
+				Background="#E60D0D11"
 				VerticalAlignment="Bottom"
 				Margin="0,0,0,40"
 				IsHitTestVisible="False">
@@ -218,7 +218,7 @@
 				Width="240"
 				Height="38"
 				CornerRadius="19"
-				Background="#B30D0D11"
+				Background="#E60D0D11"
 				BorderBrush="#2A2A35"
 				BorderThickness="1"
 				ClipToBounds="True"
@@ -232,6 +232,7 @@
 						Name="ExpandedIslandBackground"
 						CornerRadius="18"
 						Opacity="0.0"
+						Visibility="Collapsed"
 						ClipToBounds="True"
 						IsHitTestVisible="False">
 						<Border.Background>
@@ -255,6 +256,7 @@
 						Name="ExpandedWaterLayer2"
 						CornerRadius="18"
 						Opacity="0.0"
+						Visibility="Collapsed"
 						ClipToBounds="True"
 						IsHitTestVisible="False">
 						<Border.Background>

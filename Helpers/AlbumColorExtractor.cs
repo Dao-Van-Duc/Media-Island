@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -25,17 +26,10 @@ namespace DynamicIslandMedia.Helpers
 
             public Color ToColor()
             {
-                // If it's a pastel color (very high luminance but noticeable saturation, like pastel pink or soft cyan),
-                // tune L slightly (to ~0.78) so the true hue remains clearly visible and vibrant in ambient glow
-                if (this.S >= 0.20 && this.L > 0.85)
+                // If it's pitch black, lift luminance slightly so it doesn't vanish into the black shell
+                if (this.L < 0.10)
                 {
-                    return HslToRgbColor(this.H, Math.Clamp(this.S * 1.15, 0.45, 0.85), 0.78);
-                }
-
-                // If it's very dark and saturated, lift L slightly so it doesn't vanish into pure black
-                if (this.S >= 0.20 && this.L < 0.20)
-                {
-                    return HslToRgbColor(this.H, this.S, 0.32);
+                    return HslToRgbColor(this.H, this.S, 0.22);
                 }
 
                 return Color.FromRgb((byte)this.R, (byte)this.G, (byte)this.B);
@@ -43,8 +37,9 @@ namespace DynamicIslandMedia.Helpers
         }
 
         /// <summary>
-        /// Accurately extracts the most dominant color (Color 1) and second most color / key visual accent (Color 2)
-        /// from the album artwork without arbitrarily discarding white, grays, or pastels.
+        /// Accurately extracts the 2 most prominent colors of the album artwork:
+        /// Color 1: The most frequent dominant color.
+        /// Color 2: The second most frequent color that is visually distinct from Color 1.
         /// </summary>
         public static (Color DominantColor, Color SecondaryColor) ExtractColors(ImageSource? imageSource)
         {
@@ -55,41 +50,53 @@ namespace DynamicIslandMedia.Helpers
 
             try
             {
-                // 1. Fast downsampling to 48x48 (2,304 pixels)
-                int sampleSize = 48;
-                var scale = new ScaleTransform(
-                    (double)sampleSize / bitmapSource.PixelWidth,
-                    (double)sampleSize / bitmapSource.PixelHeight);
+                BitmapSource source = bitmapSource;
+                if (source.Format != PixelFormats.Bgra32)
+                {
+                    var converted = new FormatConvertedBitmap();
+                    converted.BeginInit();
+                    converted.Source = source;
+                    converted.DestinationFormat = PixelFormats.Bgra32;
+                    converted.EndInit();
+                    converted.Freeze();
+                    source = converted;
+                }
 
-                var scaled = new TransformedBitmap(bitmapSource, scale);
-                var formatted = new FormatConvertedBitmap(scaled, PixelFormats.Bgra32, null, 0);
+                int width = source.PixelWidth;
+                int height = source.PixelHeight;
+                int stride = width * 4;
+                byte[] rawPixels = new byte[height * stride];
+                source.CopyPixels(rawPixels, stride, 0);
 
-                int stride = sampleSize * 4;
-                byte[] pixels = new byte[sampleSize * stride];
-                formatted.CopyPixels(pixels, stride, 0);
+                int stepX = Math.Max(1, width / 48);
+                int stepY = Math.Max(1, height / 48);
 
-                // 2. 3D RGB Color Bucketing (step = 24)
                 const int step = 24;
                 var bucketAccumulators = new Dictionary<int, (long SumR, long SumG, long SumB, int Count)>();
 
-                for (int i = 0; i < pixels.Length; i += 4)
+                for (int y = 0; y < height; y += stepY)
                 {
-                    byte b = pixels[i];
-                    byte g = pixels[i + 1];
-                    byte r = pixels[i + 2];
-                    byte a = pixels[i + 3];
-
-                    if (a < 64) continue; // Skip transparent pixels
-
-                    int key = ((r / step) << 16) | ((g / step) << 8) | (b / step);
-
-                    if (!bucketAccumulators.TryGetValue(key, out var acc))
+                    int rowOffset = y * stride;
+                    for (int x = 0; x < width; x += stepX)
                     {
-                        bucketAccumulators[key] = (r, g, b, 1);
-                    }
-                    else
-                    {
-                        bucketAccumulators[key] = (acc.SumR + r, acc.SumG + g, acc.SumB + b, acc.Count + 1);
+                        int i = rowOffset + (x * 4);
+                        byte b = rawPixels[i];
+                        byte g = rawPixels[i + 1];
+                        byte r = rawPixels[i + 2];
+                        byte a = rawPixels[i + 3];
+
+                        if (a < 64) continue; // Skip transparent pixels
+
+                        int key = ((r / step) << 16) | ((g / step) << 8) | (b / step);
+
+                        if (!bucketAccumulators.TryGetValue(key, out var acc))
+                        {
+                            bucketAccumulators[key] = (r, g, b, 1);
+                        }
+                        else
+                        {
+                            bucketAccumulators[key] = (acc.SumR + r, acc.SumG + g, acc.SumB + b, acc.Count + 1);
+                        }
                     }
                 }
 
@@ -98,12 +105,12 @@ namespace DynamicIslandMedia.Helpers
                     return (FallbackColor1, FallbackColor2);
                 }
 
-                // 3. Build clusters and compute HSL
+                // Build clusters and compute HSL
                 var clusters = new List<ColorCluster>(bucketAccumulators.Count);
                 foreach (var kvp in bucketAccumulators)
                 {
                     var acc = kvp.Value;
-                    if (acc.Count < 4) continue; // Ignore tiny noise
+                    if (acc.Count < 3) continue; // Ignore tiny noise
 
                     int avgR = (int)(acc.SumR / acc.Count);
                     int avgG = (int)(acc.SumG / acc.Count);
@@ -134,42 +141,17 @@ namespace DynamicIslandMedia.Helpers
                 // Dominant Color (Color 1): most frequent cluster
                 var c1 = clusters[0];
 
-                // Candidates for Secondary Color (Color 2): must be distinct from Color 1
-                var distinctCandidates = clusters
-                    .Where(c => IsDistinct(c, c1))
-                    .ToList();
+                // Secondary Color (Color 2): second most frequent cluster that is distinct from Color 1
+                ColorCluster? c2 = clusters
+                    .Skip(1)
+                    .FirstOrDefault(c => IsDistinct(c, c1));
 
-                ColorCluster c2;
-                if (c1.S < 0.18)
+                if (c2 == null)
                 {
-                    // Case A: Dominant is neutral (White, Off-white, Gray, Black).
-                    // Prioritize the most frequent chromatic/vibrant cluster (e.g. Pink watercolor)!
-                    var chromatic = distinctCandidates
-                        .Where(c => c.S >= 0.18)
-                        .OrderByDescending(c => c.PixelCount)
-                        .FirstOrDefault();
-
-                    if (chromatic != null)
+                    var anyDistinct = clusters.Skip(1).Where(c => ColorDistance(c, c1) >= 20.0).ToList();
+                    if (anyDistinct.Count > 0)
                     {
-                        c2 = chromatic;
-                    }
-                    else if (distinctCandidates.Count > 0)
-                    {
-                        // Pure monochrome artwork (black & white): pick highest contrast neutral
-                        c2 = distinctCandidates.OrderByDescending(c => ColorDistance(c, c1)).First();
-                    }
-                    else
-                    {
-                        c2 = c1;
-                    }
-                }
-                else
-                {
-                    // Case B: Dominant is chromatic (e.g. Blue, Purple, Red, Green).
-                    // Prefer the highest count distinct cluster
-                    if (distinctCandidates.Count > 0)
-                    {
-                        c2 = distinctCandidates[0];
+                        c2 = anyDistinct.OrderByDescending(c => ColorDistance(c, c1)).First();
                     }
                     else
                     {
@@ -182,7 +164,7 @@ namespace DynamicIslandMedia.Helpers
 
                 if (ReferenceEquals(c2, c1) || ColorDistance(c1, c2) < 20)
                 {
-                    // Harmonious fallback if image is 100% monochrome flat color
+                    // Harmonious fallback if image is 100% monochrome flat single color
                     double derivedH = (c1.H + 35.0) % 360.0;
                     double derivedS = Math.Clamp(c1.S * 0.9, 0.35, 0.75);
                     double derivedL = c1.L > 0.5 ? Math.Max(0.35, c1.L - 0.25) : Math.Min(0.70, c1.L + 0.25);
@@ -195,8 +177,9 @@ namespace DynamicIslandMedia.Helpers
 
                 return (finalColor1, finalColor2);
             }
-            catch
+            catch (Exception ex)
             {
+                Debug.WriteLine($"[AlbumColorExtractor] Error: {ex.Message}");
                 return (FallbackColor1, FallbackColor2);
             }
         }
@@ -204,13 +187,13 @@ namespace DynamicIslandMedia.Helpers
         private static bool IsDistinct(ColorCluster a, ColorCluster b)
         {
             double dist = ColorDistance(a, b);
-            if (dist >= 38.0) return true;
+            if (dist >= 42.0) return true;
 
             // One is neutral and the other has noticeable saturation
-            if (Math.Abs(a.S - b.S) >= 0.18 && dist >= 16.0) return true;
+            if (Math.Abs(a.S - b.S) >= 0.16 && dist >= 20.0) return true;
 
             // Both have noticeable saturation but distinct hue
-            if (a.S >= 0.18 && b.S >= 0.18)
+            if (a.S >= 0.16 && b.S >= 0.16)
             {
                 double hueDiff = Math.Abs(a.H - b.H);
                 if (hueDiff > 180.0) hueDiff = 360.0 - hueDiff;
