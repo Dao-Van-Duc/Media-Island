@@ -17,6 +17,7 @@ namespace DynamicIslandMedia.ViewModels
         private readonly WindowsMediaService _mediaService;
         private readonly AppSettings _settings;
         private readonly DispatcherTimer _collapseTimer;
+        private readonly DispatcherTimer _hoverEnterTimer;
         private readonly DispatcherTimer _noMediaGraceTimer;
 
         private MediaPlaybackInfo _currentMedia = new();
@@ -39,17 +40,21 @@ namespace DynamicIslandMedia.ViewModels
             _isMasterEnabled = _settings.IsMasterEnabled;
             _isPinned = _settings.IsPositionPinned;
 
-            _collapseTimer = new DispatcherTimer
+            // Brief dwell prevents accidental expansion when the pointer merely passes over the pill.
+            _hoverEnterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Math.Clamp(_settings.HoverExpandDelayMs, 0, 2000)) };
+            _hoverEnterTimer.Tick += (s, e) =>
             {
-                Interval = TimeSpan.FromMilliseconds(1800)
+                _hoverEnterTimer.Stop();
+                if (_settings.AutoExpandOnHover && !IsExpanded && HasMedia && IsMasterEnabled)
+                    IsExpanded = true;
             };
+
+            // Wait before collapsing so controls remain usable near the island boundary.
+            _collapseTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Math.Clamp(_settings.HoverCollapseDelayMs, 0, 3000)) };
             _collapseTimer.Tick += (s, e) =>
             {
                 _collapseTimer.Stop();
-                if (IsExpanded)
-                {
-                    IsExpanded = false;
-                }
+                if (IsExpanded) IsExpanded = false;
             };
 
             // 15-second grace period timer when active media stops
@@ -93,6 +98,12 @@ namespace DynamicIslandMedia.ViewModels
         public ICommand ExpandCommand { get; }
         public ICommand ToggleVisibilityCommand { get; }
 
+        public void RefreshHoverDelaysFromSettings()
+        {
+            _hoverEnterTimer.Interval = TimeSpan.FromMilliseconds(Math.Clamp(_settings.HoverExpandDelayMs, 0, 2000));
+            _collapseTimer.Interval = TimeSpan.FromMilliseconds(Math.Clamp(_settings.HoverCollapseDelayMs, 0, 3000));
+        }
+
         public AppSettings Settings => _settings;
 
         public MediaPlaybackInfo CurrentMedia
@@ -130,10 +141,8 @@ namespace DynamicIslandMedia.ViewModels
                 {
                     _isExpanded = value;
                     OnPropertyChanged();
-                    if (_isExpanded)
-                    {
-                        _collapseTimer.Stop();
-                    }
+                    _collapseTimer.Stop();
+                    _hoverEnterTimer.Stop();
                 }
             }
         }
@@ -314,18 +323,20 @@ namespace DynamicIslandMedia.ViewModels
         public void OnMouseEnterIsland()
         {
             _collapseTimer.Stop();
-            if (_settings.AutoExpandOnHover && !_isExpanded && HasMedia)
+            if (_settings.AutoExpandOnHover && !_isExpanded && HasMedia && IsMasterEnabled)
             {
-                IsExpanded = true;
+                _hoverEnterTimer.Stop();
+                _hoverEnterTimer.Start();
             }
         }
 
         public void OnMouseLeaveIsland()
         {
+            _hoverEnterTimer.Stop();
             if (IsExpanded)
             {
                 _collapseTimer.Stop();
-                IsExpanded = false;
+                _collapseTimer.Start();
             }
         }
 

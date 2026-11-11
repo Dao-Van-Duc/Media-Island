@@ -34,8 +34,14 @@ namespace DynamicIslandMedia
 
                 BottomMarginSlider.Value = _settings.EdgeDistance;
                 AutoExpandCheckBox.IsChecked = _settings.AutoExpandOnHover;
+                HoverExpandDelaySlider.Value = _settings.HoverExpandDelayMs;
+                HoverCollapseDelaySlider.Value = _settings.HoverCollapseDelayMs;
                 AutoHideCheckBox.IsChecked = _settings.AutoHideWhenIdle;
                 StartWithWindowsCheckBox.IsChecked = _settings.StartWithWindows;
+                EnableGradientCheckBox.IsChecked = _settings.EnableGradient;
+                EnableProgressGlowCheckBox.IsChecked = _settings.EnableProgressGlow;
+                CompactOpacitySlider.Value = _settings.CompactBackgroundOpacityPercent;
+                ExpandedOpacitySlider.Value = _settings.ExpandedBackgroundOpacityPercent;
 
                 UpdateDistanceLabel();
             }
@@ -86,8 +92,14 @@ namespace DynamicIslandMedia
             BottomMarginSlider.Value = AppSettings.DefaultEdgeDistance;
             _viewModel.EdgeDistance = AppSettings.DefaultEdgeDistance;
             AutoExpandCheckBox.IsChecked = true;
+            HoverExpandDelaySlider.Value = 150;
+            HoverCollapseDelaySlider.Value = 350;
             AutoHideCheckBox.IsChecked = false;
             StartWithWindowsCheckBox.IsChecked = false;
+            EnableGradientCheckBox.IsChecked = true;
+            EnableProgressGlowCheckBox.IsChecked = true;
+            CompactOpacitySlider.Value = 85;
+            ExpandedOpacitySlider.Value = 20;
             UpdateDistanceLabel();
             _viewModel.ResetPositionToDefault();
         }
@@ -97,13 +109,25 @@ namespace DynamicIslandMedia
             _settings.IslandPosition = (TopPositionRadio.IsChecked == true) ? AppSettings.PositionTop : AppSettings.PositionBottom;
             _settings.EdgeDistance = BottomMarginSlider.Value;
             _settings.AutoExpandOnHover = AutoExpandCheckBox.IsChecked ?? true;
+            _settings.HoverExpandDelayMs = (int)HoverExpandDelaySlider.Value;
+            _settings.HoverCollapseDelayMs = (int)HoverCollapseDelaySlider.Value;
             _settings.AutoHideWhenIdle = AutoHideCheckBox.IsChecked ?? false;
             _settings.StartWithWindows = StartWithWindowsCheckBox.IsChecked ?? false;
+            _settings.EnableGradient = EnableGradientCheckBox.IsChecked ?? true;
+            _settings.EnableProgressGlow = EnableProgressGlowCheckBox.IsChecked ?? true;
+            _settings.CompactBackgroundOpacityPercent = CompactOpacitySlider.Value;
+            _settings.ExpandedBackgroundOpacityPercent = ExpandedOpacitySlider.Value;
 
             _settings.Save();
+            _viewModel.RefreshHoverDelaysFromSettings();
             _viewModel.IslandPosition = _settings.IslandPosition;
             _viewModel.EdgeDistance = _settings.EdgeDistance;
             _viewModel.UpdatePresenceVisibility();
+
+            if (System.Windows.Application.Current.MainWindow is MainWindow mw)
+            {
+                mw.RefreshAppearanceFromSettings();
+            }
 
             Close();
         }

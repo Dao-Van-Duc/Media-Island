@@ -40,7 +40,23 @@ namespace DynamicIslandMedia.Models
         public bool IsMasterEnabled { get; set; } = true;
         public bool AutoHideWhenIdle { get; set; } = false;
         public bool AutoExpandOnHover { get; set; } = true;
+        public int HoverExpandDelayMs { get; set; } = 150;
+        public int HoverCollapseDelayMs { get; set; } = 350;
         public bool StartWithWindows { get; set; } = false;
+
+        public bool EnableGradient { get; set; } = true;
+        public bool EnableProgressGlow { get; set; } = true;
+        // 20% opacity ~= 80% transparent.
+        public double CompactBackgroundOpacityPercent { get; set; } = 85.0;
+        public double ExpandedBackgroundOpacityPercent { get; set; } = 20.0;
+
+        // Read settings from earlier Appearance editions without writing the legacy key again.
+        [JsonPropertyName("BackgroundOpacityPercent")]
+        public double? LegacyBackgroundOpacityPercent
+        {
+            get => null;
+            set { if (value.HasValue) ExpandedBackgroundOpacityPercent = Math.Clamp(value.Value, 0, 100); }
+        }
 
         public bool IsPositionPinned { get; set; } = false;
         public double? PinnedLeft { get; set; } = null;

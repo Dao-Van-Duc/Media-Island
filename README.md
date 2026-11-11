@@ -1,4 +1,4 @@
-# 🏝️ Dynamic Island Media for Windows 11
+# 🏝️ Dynamic Island Media for Windows
 
 A lightweight, elegant Windows 11 desktop background application built with **C# (.NET 8, WPF)** that brings the fluid macOS "Dynamic Island" experience to Windows for currently playing media.
 
@@ -11,10 +11,10 @@ A lightweight, elegant Windows 11 desktop background application built with **C#
   - Seamlessly detects now-playing tracks, artists, album artwork, and play/pause state from **Spotify, YouTube in Chrome/Edge/Firefox, Apple Music, VLC, Windows Media Player, MusicBee, and more**.
   - Direct media controls: **Previous Track**, **Play/Pause**, **Next Track**, and **Click-to-Seek** progress timeline.
 - **Dynamic Island Morphing & Visual Aesthetics**:
-  - **Anchored at Bottom of Screen**: Positioned at the bottom center of the primary display's working area (`SystemParameters.WorkArea`), floating just above the Windows taskbar.
-  - **Fluid Upward Expansion**: Morphs and expands **upward** towards the top of the screen when hovered or clicked, while its bottom baseline remains fixed and stationary.
-  - **Compact Pill Mode**: Sleek pill (~240px wide × 38px high) sitting at default offset (1/5 of collapsed height = 7.6px above taskbar), showing mini album art, song title, artist, micro play state, and **animated audio visualizer wave bars** that pulse in real-time.
-  - **Expanded Island Mode**: Liquid spring morphing animation into an expanded card (~420px wide × 155px high) featuring high-resolution rounded album art, full track details, source app pill, interactive seek bar, and playback control buttons.
+  - **Position and pin**: Choose the top or bottom screen edge, adjust the distance (8px by default), drag the island, and pin its position. Expansion direction adapts to the available space.
+  - **Compact Pill Mode**: A pill (~240px wide × 38px high) with cropped album art, track metadata, and a decorative spring equalizer that follows playback state and settles to dots when paused. It does not analyze audio levels.
+  - **Expanded Island Mode**: An expanded card (~390px wide × 155px high) with rounded album art, track details, a source app badge, playback controls, and a click/drag seek bar.
+  - **Ambient background**: A drifting blue/aqua mesh, rendered at device resolution with dithering to reduce dark-gradient banding. Gradient and progress glow can be switched off independently; compact and expanded background opacity have separate controls.
   - **Adaptive Idle Behavior**: Automatically collapses to a subtle idle pill or smoothly fades out completely when no media is active (configurable in Settings).
   - **Windows 11 Fluent Dark Design**: Pure obsidian background (`#0D0D11`), 1px subtle border highlight, 26px rounded corners, and soft elevation drop shadow.
 - **Background & System Tray Integration**:
@@ -27,17 +27,24 @@ A lightweight, elegant Windows 11 desktop background application built with **C#
     - **Settings...**
     - **Exit**
 - **Settings Dialog**:
-  - Distance from bottom screen edge / taskbar slider (0px to 80px, defaults to 7.6px).
-  - Auto-expand on hover toggle.
+  - Top/bottom position and distance from the selected screen edge (0px to 80px, default 8px).
+  - Auto-expand on hover with configurable expand/collapse delays.
   - Auto-hide when idle toggle.
   - Launch on Windows startup toggle.
 
 ---
 
+## Install without the SDK
+
+See [INSTALL.md](INSTALL.md) for the Windows x64 self-contained installer and portable ZIP, supported
+Windows versions, artifact downloads, upgrade/uninstall instructions, and verification limits. End users
+do not need Visual Studio or the .NET SDK. Build and installation artifacts are distributed through
+GitHub Actions; binaries are not committed to this repository.
+
 ## 📁 Project Structure
 
 ```text
-d:\Projects\Media Player\
+Media-Island/
 ├── DynamicIslandMedia.csproj     # Configured for net8.0-windows10.0.19041.0 (WinRT + WPF + WinForms)
 ├── App.xaml                      # Application definition with single-instance mutex
 ├── App.xaml.cs                   # App lifecycle, tray initialization, and event wiring
@@ -87,7 +94,7 @@ dotnet run -c Release
 ```
 
 Once launched:
-- The Dynamic Island will appear anchored smoothly at the top center of your main display.
+- The island appears at the configured screen edge (bottom by default), subject to media/idle visibility settings.
 - An icon will appear in the Windows System Tray (near the taskbar clock).
 
 ---
@@ -98,10 +105,10 @@ Once launched:
 | :--- | :--- |
 | **Hover mouse over pill** | Automatically expands the island (can be toggled in Settings). |
 | **Click on compact pill** | Instantly expands to full controls. |
-| **Mouse leaves expanded island** | Automatically collapses back to compact pill after ~1.8 seconds (unless pinned). |
-| **Click 📌 Pin button** | Locks the island in expanded mode until unpinned. |
+| **Mouse leaves expanded island** | Collapses after the configured delay (350ms by default). |
+| **Click Pin button** | Locks the island's position until unpinned. |
 | **Click ⌃ Collapse button** | Collapses back to compact pill immediately. |
-| **Left-click on timeline bar** | Seeks media track to clicked playback position. |
+| **Click or drag on timeline bar** | Previews the selected position and commits the seek on release. |
 | **Click Play / Pause / Prev / Next** | Controls the active player (Spotify, browser, etc.). |
 | **Right-click on island** | Toggles between compact and expanded view. |
 | **Click system tray icon** | Toggles show / hide visibility of the island. |

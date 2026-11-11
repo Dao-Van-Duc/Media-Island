@@ -1,0 +1,69 @@
+name: Package & Distribution
+
+on:
+  push:
+    branches: [main, 'feature/**', 'handoff/**']
+    paths-ignore: ['**.md', 'docs/**']
+  pull_request:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Numeric package version, greater than 0.0.0 (for example 1.0.0)'
+        default: '1.0.0'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-package:
+    name: Build and verify Windows x64 packages
+    runs-on: windows-2022
+    timeout-minutes: 20
+    env:
+      INPUT_VERSION: ${{ github.event.inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Locate preinstalled Inno Setup
+        shell: powershell
+        run: |
+          $compiler = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+          if (!$compiler) {
+            $locations = @("${env:ProgramFiles(x86)}\Inno Setup 6", "$env:ProgramFiles\Inno Setup 6")
+            $directory = $locations | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'ISCC.exe') } | Select-Object -First 1
+            if (!$directory) { throw 'Inno Setup is missing from the Windows runner; no tools are installed by this workflow.' }
+            $directory | Out-File -LiteralPath $env:GITHUB_PATH -Encoding UTF8 -Append
+          }
+      - name: Build self-contained ZIP and per-user installer
+        shell: powershell
+        run: |
+          $version = if ($env:INPUT_VERSION) { $env:INPUT_VERSION } else { '1.0.0' }
+          .\tools\Build-Package.ps1 -Version $version -PublishDir (Join-Path $pwd 'publish\ci-staging')
+      - name: Verify installation, upgrade, runtime and uninstall on the disposable runner
+        shell: powershell
+        run: |
+          $version = if ($env:INPUT_VERSION) { $env:INPUT_VERSION } else { '1.0.0' }
+          .\packaging\Test-Installer.ps1 -Version $version
+      - name: Upload installer, portable ZIP and checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: MediaIsland-win-x64-packages
+          path: |
+            publish/dist/*-setup.exe
+            publish/dist/*-portable.zip
+            publish/dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload installer verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MediaIsland-installer-verification-logs
+          path: publish/test-logs/*.log
+          if-no-files-found: warn
+          retention-days: 30

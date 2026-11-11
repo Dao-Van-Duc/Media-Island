@@ -1,14 +1,18 @@
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
-using System.Windows.Media;
 using System.Windows.Media.Animation;
-using Color = System.Windows.Media.Color;
+using System.Windows.Media;
+using System.Windows.Shapes;
 using DynamicIslandMedia.Models;
+using DynamicIslandMedia.Rendering;
 using DynamicIslandMedia.Services;
 using DynamicIslandMedia.ViewModels;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
@@ -86,33 +90,11 @@ namespace DynamicIslandMedia
 				this.RepositionWindow();
 			}
 			this._fullscreenDetector.Start();
-			this._wave1 = (base.TryFindResource("WaveAnimation1") as Storyboard);
-			this._wave2 = (base.TryFindResource("WaveAnimation2") as Storyboard);
-			this._wave3 = (base.TryFindResource("WaveAnimation3") as Storyboard);
-			this._wave4 = (base.TryFindResource("WaveAnimation4") as Storyboard);
 			this.UpdateVisualizer(this._viewModel.IsPlaying);
+			this.IsVisibleChanged += (_, _) => { this.EnsureGlowAnimating(); this.EnsureEqualizerAnimating(); };
 			this.UpdateProgressFill();
-			this.UpdateExpandedBackgroundColors(this._viewModel.PrimaryColor, this._viewModel.SecondaryColor, 0);
-			if (this.ExpandedIslandBackground != null)
-			{
-				this.ExpandedIslandBackground.Visibility = this._viewModel.IsExpanded ? Visibility.Visible : Visibility.Collapsed;
-				this.ExpandedIslandBackground.Opacity = this._viewModel.IsExpanded ? 1.0 : 0.0;
-				this.ExpandedIslandBackground.CornerRadius = this._viewModel.IsExpanded ? new CornerRadius(21.0) : new CornerRadius(18.0);
-			}
-			if (this.ExpandedWaterLayer2 != null)
-			{
-				this.ExpandedWaterLayer2.Visibility = this._viewModel.IsExpanded ? Visibility.Visible : Visibility.Collapsed;
-				this.ExpandedWaterLayer2.Opacity = this._viewModel.IsExpanded ? 0.9 : 0.0;
-				this.ExpandedWaterLayer2.CornerRadius = this._viewModel.IsExpanded ? new CornerRadius(21.0) : new CornerRadius(18.0);
-			}
-			if (this._viewModel.IsExpanded)
-			{
-				this.StartWaterMotion();
-			}
-			else
-			{
-				this.StopWaterMotion();
-			}
+            this.StartAmbientGradient();
+            this.ApplyAppearanceSettings();
 			if (!this._viewModel.IsVisible)
 			{
 				base.Visibility = Visibility.Collapsed;
@@ -460,11 +442,6 @@ namespace DynamicIslandMedia
 					this.UpdateProgressFill();
 					return;
 				}
-				if (propertyName == "PrimaryColor" || propertyName == "SecondaryColor" || propertyName == "CurrentMedia" || propertyName == "AlbumArt")
-				{
-					this.UpdateExpandedBackgroundColors(this._viewModel.PrimaryColor, this._viewModel.SecondaryColor, this._viewModel.IsExpanded ? 800 : 0);
-					return;
-				}
 				if (!(propertyName == "HasMedia"))
 				{
 					return;
@@ -478,6 +455,8 @@ namespace DynamicIslandMedia
 
 		private void MainWindow_Closed(object? sender, EventArgs e)
 		{
+			this.StopGlowAnimating();
+			if (_eqHooked) { CompositionTarget.Rendering -= OnEqualizerRendering; _eqHooked = false; }
 			this._fullscreenDetector.Dispose();
 		}
 
@@ -496,6 +475,8 @@ namespace DynamicIslandMedia
 					this.Visibility = Visibility.Visible;
 					DoubleAnimation animation = new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(200.0));
 					this.BeginAnimation(UIElement.OpacityProperty, animation);
+					this.EnsureGlowAnimating();
+					this.EnsureEqualizerAnimating();
 				}
 			});
 		}
@@ -511,6 +492,8 @@ namespace DynamicIslandMedia
 				base.Visibility = Visibility.Visible;
 				DoubleAnimation animation = new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(200.0));
 				base.BeginAnimation(UIElement.OpacityProperty, animation);
+				this.EnsureGlowAnimating();
+				this.EnsureEqualizerAnimating();
 				return;
 			}
 			DoubleAnimation doubleAnimation = new DoubleAnimation(1.0, 0.0, TimeSpan.FromMilliseconds(200.0));
@@ -530,6 +513,9 @@ namespace DynamicIslandMedia
 			TimeSpan timeSpan = TimeSpan.FromMilliseconds(260.0);
 			if (expand)
 			{
+                this.AnimateAmbientOpacity(true);
+                this.UpdateBackgroundOpacity(true);
+
 				DoubleAnimation doubleAnimation = new DoubleAnimation(this.CompactContentGrid.Opacity, 0.0, TimeSpan.FromMilliseconds(100.0));
 				doubleAnimation.Completed += delegate(object? s, EventArgs e)
 				{
@@ -549,23 +535,9 @@ namespace DynamicIslandMedia
 					EasingFunction = easingFunction
 				};
 				this.IslandBorder.CornerRadius = new CornerRadius(22.0);
+                this.AmbientGradientLayer.CornerRadius = new CornerRadius(0.0, 0.0, 20.0, 20.0);
+                this.UpdateAmbientGradientClip();
 				this.ShadowBorder.CornerRadius = new CornerRadius(22.0);
-				this.UpdateExpandedBackgroundColors(this._viewModel.PrimaryColor, this._viewModel.SecondaryColor, 0);
-				if (this.ExpandedIslandBackground != null)
-				{
-					this.ExpandedIslandBackground.Visibility = Visibility.Visible;
-					this.ExpandedIslandBackground.CornerRadius = new CornerRadius(21.0);
-					this.ExpandedIslandBackground.BeginAnimation(UIElement.OpacityProperty,
-						new DoubleAnimation(this.ExpandedIslandBackground.Opacity, 1.0, TimeSpan.FromMilliseconds(240.0)) { EasingFunction = easingFunction });
-				}
-				if (this.ExpandedWaterLayer2 != null)
-				{
-					this.ExpandedWaterLayer2.Visibility = Visibility.Visible;
-					this.ExpandedWaterLayer2.CornerRadius = new CornerRadius(21.0);
-					this.ExpandedWaterLayer2.BeginAnimation(UIElement.OpacityProperty,
-						new DoubleAnimation(this.ExpandedWaterLayer2.Opacity, 0.9, TimeSpan.FromMilliseconds(300.0)) { EasingFunction = easingFunction });
-				}
-				this.StartWaterMotion();
 				this.IslandBorder.BeginAnimation(FrameworkElement.WidthProperty, animation);
 				this.IslandBorder.BeginAnimation(FrameworkElement.HeightProperty, animation2);
 				this.ShadowBorder.BeginAnimation(FrameworkElement.WidthProperty, animation);
@@ -573,40 +545,19 @@ namespace DynamicIslandMedia
 				this.IslandHitBox.BeginAnimation(FrameworkElement.WidthProperty, animation);
 				return;
 			}
+            this.AnimateAmbientOpacity(false);
+            this.UpdateBackgroundOpacity(false);
+
 			DoubleAnimation doubleAnimation2 = new DoubleAnimation(this.ExpandedContentGrid.Opacity, 0.0, TimeSpan.FromMilliseconds(100.0));
 			doubleAnimation2.Completed += delegate(object? s, EventArgs e)
 			{
 				this.ExpandedContentGrid.Visibility = Visibility.Collapsed;
 				this.CompactContentGrid.Visibility = Visibility.Visible;
+				this.EnsureEqualizerAnimating();
 				DoubleAnimation animation5 = new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(180.0));
 				this.CompactContentGrid.BeginAnimation(UIElement.OpacityProperty, animation5);
 			};
 			this.ExpandedContentGrid.BeginAnimation(UIElement.OpacityProperty, doubleAnimation2);
-			if (this.ExpandedIslandBackground != null)
-			{
-				DoubleAnimation bgFadeOut = new DoubleAnimation(this.ExpandedIslandBackground.Opacity, 0.0, TimeSpan.FromMilliseconds(160.0))
-				{
-					EasingFunction = easingFunction
-				};
-				bgFadeOut.Completed += delegate
-				{
-					if (!this._viewModel.IsExpanded)
-					{
-						this.ExpandedIslandBackground.Visibility = Visibility.Collapsed;
-						if (this.ExpandedWaterLayer2 != null)
-						{
-							this.ExpandedWaterLayer2.Visibility = Visibility.Collapsed;
-						}
-						this.StopWaterMotion();
-					}
-				};
-				this.ExpandedIslandBackground.BeginAnimation(UIElement.OpacityProperty, bgFadeOut);
-			}
-			if (this.ExpandedWaterLayer2 != null)
-			{
-				this.ExpandedWaterLayer2.BeginAnimation(UIElement.OpacityProperty,
-					new DoubleAnimation(this.ExpandedWaterLayer2.Opacity, 0.0, TimeSpan.FromMilliseconds(140.0)) { EasingFunction = easingFunction });
-			}
 			double toValue = (double)(this._viewModel.HasMedia ? 240 : 180);
 			DoubleAnimation animation3 = new DoubleAnimation(this.IslandBorder.ActualWidth, toValue, timeSpan)
 			{
@@ -617,15 +568,9 @@ namespace DynamicIslandMedia
 				EasingFunction = easingFunction
 			};
 			this.IslandBorder.CornerRadius = new CornerRadius(19.0);
+            this.AmbientGradientLayer.CornerRadius = new CornerRadius(0.0, 0.0, 17.0, 17.0);
+            this.UpdateAmbientGradientClip();
 			this.ShadowBorder.CornerRadius = new CornerRadius(19.0);
-			if (this.ExpandedIslandBackground != null)
-			{
-				this.ExpandedIslandBackground.CornerRadius = new CornerRadius(18.0);
-			}
-			if (this.ExpandedWaterLayer2 != null)
-			{
-				this.ExpandedWaterLayer2.CornerRadius = new CornerRadius(18.0);
-			}
 			this.IslandBorder.BeginAnimation(FrameworkElement.WidthProperty, animation3);
 			this.IslandBorder.BeginAnimation(FrameworkElement.HeightProperty, animation4);
 			this.ShadowBorder.BeginAnimation(FrameworkElement.WidthProperty, animation3);
@@ -652,262 +597,258 @@ namespace DynamicIslandMedia
 			this.IslandHitBox.BeginAnimation(FrameworkElement.WidthProperty, animation);
 		}
 
-		private void UpdateExpandedBackgroundColors(Color c1, Color c2, int durationMs = 800)
-		{
-			if (this.ExpandedColorStop1 == null || this.ExpandedColorStop2 == null)
-			{
-				return;
-			}
-
-			// Balanced liquid blend:
-			// Left side (~35%): Color 1 (Dominant, e.g. White) with clean, soft alpha
-			// Middle zone (~25%): Wide, smooth organic blend between Color 1 and Color 2
-			// Right side (40%+): Color 2 (Secondary, e.g. Pink) with rich, vibrant alpha and floating swell
-			Color target1    = Color.FromArgb(115, c1.R, c1.G, c1.B);
-			Color targetMid1 = Color.FromArgb(115, c1.R, c1.G, c1.B);
-			Color targetMid2 = Color.FromArgb(160, c2.R, c2.G, c2.B);
-			Color target2    = Color.FromArgb(165, c2.R, c2.G, c2.B);
-
-			// Radial swell: rich, luminous pool of Color 2 on the right side (~40% of island)
-			Color radCenter  = Color.FromArgb(120, c2.R, c2.G, c2.B);
-			Color radEdge    = Color.FromArgb(0,   c2.R, c2.G, c2.B);
-
-			if (durationMs <= 0)
-			{
-				this.ExpandedColorStop1.BeginAnimation(GradientStop.ColorProperty, null);
-				this.ExpandedColorStop1.Color = target1;
-				if (this.ExpandedColorStopMid1 != null)
-				{
-					this.ExpandedColorStopMid1.BeginAnimation(GradientStop.ColorProperty, null);
-					this.ExpandedColorStopMid1.Color = targetMid1;
-				}
-				if (this.ExpandedColorStopMid2 != null)
-				{
-					this.ExpandedColorStopMid2.BeginAnimation(GradientStop.ColorProperty, null);
-					this.ExpandedColorStopMid2.Color = targetMid2;
-				}
-				this.ExpandedColorStop2.BeginAnimation(GradientStop.ColorProperty, null);
-				this.ExpandedColorStop2.Color = target2;
-				if (this.RadialColorStop1 != null)
-				{
-					this.RadialColorStop1.BeginAnimation(GradientStop.ColorProperty, null);
-					this.RadialColorStop1.Color = radCenter;
-				}
-				if (this.RadialColorStop2 != null)
-				{
-					this.RadialColorStop2.BeginAnimation(GradientStop.ColorProperty, null);
-					this.RadialColorStop2.Color = radEdge;
-				}
-				return;
-			}
-
-			CubicEase ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-			TimeSpan dur = TimeSpan.FromMilliseconds(durationMs);
-
-			this.ExpandedColorStop1.BeginAnimation(GradientStop.ColorProperty,    new ColorAnimation(target1,    dur) { EasingFunction = ease });
-			if (this.ExpandedColorStopMid1 != null)
-			{
-				this.ExpandedColorStopMid1.BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(targetMid1, dur) { EasingFunction = ease });
-			}
-			if (this.ExpandedColorStopMid2 != null)
-			{
-				this.ExpandedColorStopMid2.BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(targetMid2, dur) { EasingFunction = ease });
-			}
-			this.ExpandedColorStop2.BeginAnimation(GradientStop.ColorProperty,    new ColorAnimation(target2,    dur) { EasingFunction = ease });
-			if (this.RadialColorStop1 != null)
-			{
-				this.RadialColorStop1.BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(radCenter, dur) { EasingFunction = ease });
-			}
-			if (this.RadialColorStop2 != null)
-			{
-				this.RadialColorStop2.BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(radEdge,   dur) { EasingFunction = ease });
-			}
-		}
-
-		private void StartWaterMotion()
-		{
-			SineEase sine = new SineEase { EasingMode = EasingMode.EaseInOut };
-
-			// 1. Organic angle rotation — slow wave tilt (10.5s period)
-			if (this.GradientRotate != null)
-			{
-				var anim = new DoubleAnimation(-18.0, 18.0, TimeSpan.FromSeconds(10.5))
-				{
-					AutoReverse = true,
-					RepeatBehavior = RepeatBehavior.Forever,
-					EasingFunction = sine
-				};
-				this.GradientRotate.BeginAnimation(RotateTransform.AngleProperty, anim);
-			}
-
-			// 2. Horizontal liquid drift (7.2s), vertical swell (8.8s) — incommensurate for no-repeat pattern
-			if (this.GradientTranslate != null)
-			{
-				this.GradientTranslate.BeginAnimation(TranslateTransform.XProperty,
-					new DoubleAnimation(-0.14, 0.14, TimeSpan.FromSeconds(7.2))
-					{
-						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
-					});
-				this.GradientTranslate.BeginAnimation(TranslateTransform.YProperty,
-					new DoubleAnimation(-0.10, 0.10, TimeSpan.FromSeconds(8.8))
-					{
-						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
-					});
-			}
-
-			// 3. Breathing scale (8.0s) — gentle expansion and contraction
-			if (this.GradientScale != null)
-			{
-				var breathe = new DoubleAnimation(1.0, 1.20, TimeSpan.FromSeconds(8.0))
-				{
-					AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
-				};
-				this.GradientScale.BeginAnimation(ScaleTransform.ScaleXProperty, breathe);
-				this.GradientScale.BeginAnimation(ScaleTransform.ScaleYProperty, breathe);
-			}
-
-			// 4. Undulating wave blend offsets — StopMid1 (Color 1) and StopMid2 (Color 2)
-			// Mid1 waves between 0.24 and 0.40; Mid2 waves between 0.50 and 0.68.
-			// This ensures Color 2 commands at least 40% (up to 55%) of the island space while smoothly blending in the middle
-			if (this.ExpandedColorStopMid1 != null)
-			{
-				this.ExpandedColorStopMid1.BeginAnimation(GradientStop.OffsetProperty,
-					new DoubleAnimation(0.24, 0.40, TimeSpan.FromSeconds(6.2))
-					{
-						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
-					});
-			}
-			if (this.ExpandedColorStopMid2 != null)
-			{
-				this.ExpandedColorStopMid2.BeginAnimation(GradientStop.OffsetProperty,
-					new DoubleAnimation(0.50, 0.68, TimeSpan.FromSeconds(7.8))
-					{
-						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
-					});
-			}
-
-			// 5. Radial swell over the Color 2 zone (right side) counter-drifts organically
-			if (this.RadialTranslate != null)
-			{
-				this.RadialTranslate.BeginAnimation(TranslateTransform.XProperty,
-					new DoubleAnimation(0.14, -0.14, TimeSpan.FromSeconds(8.4))
-					{
-						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
-					});
-				this.RadialTranslate.BeginAnimation(TranslateTransform.YProperty,
-					new DoubleAnimation(-0.10, 0.10, TimeSpan.FromSeconds(6.6))
-					{
-						AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
-					});
-			}
-			if (this.RadialScale != null)
-			{
-				var radScaleAnim = new DoubleAnimation(0.95, 1.25, TimeSpan.FromSeconds(9.2))
-				{
-					AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine
-				};
-				this.RadialScale.BeginAnimation(ScaleTransform.ScaleXProperty, radScaleAnim);
-				this.RadialScale.BeginAnimation(ScaleTransform.ScaleYProperty, radScaleAnim);
-			}
-		}
-
-		private void StopWaterMotion()
-		{
-			if (this.GradientRotate != null)
-			{
-				this.GradientRotate.BeginAnimation(RotateTransform.AngleProperty, null);
-			}
-			if (this.GradientTranslate != null)
-			{
-				this.GradientTranslate.BeginAnimation(TranslateTransform.XProperty, null);
-				this.GradientTranslate.BeginAnimation(TranslateTransform.YProperty, null);
-			}
-			if (this.GradientScale != null)
-			{
-				this.GradientScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-				this.GradientScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-			}
-			if (this.ExpandedColorStopMid1 != null)
-			{
-				this.ExpandedColorStopMid1.BeginAnimation(GradientStop.OffsetProperty, null);
-			}
-			if (this.ExpandedColorStopMid2 != null)
-			{
-				this.ExpandedColorStopMid2.BeginAnimation(GradientStop.OffsetProperty, null);
-			}
-			if (this.RadialTranslate != null)
-			{
-				this.RadialTranslate.BeginAnimation(TranslateTransform.XProperty, null);
-				this.RadialTranslate.BeginAnimation(TranslateTransform.YProperty, null);
-			}
-			if (this.RadialScale != null)
-			{
-				this.RadialScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-				this.RadialScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-			}
-		}
+		// COMPACT EQUALIZER. Each bar is a damped spring chasing a smooth target:
+		// playing -> target = a layered-sine "music" level, paused -> target 0 (bars settle into round 3 px dots
+		// with a small bounce). Heights are fractional (layout rounding is off for the bar strip), so motion
+		// is continuous instead of stepping pixel by pixel. Frames run only while the compact pill shows.
+		private const double EqDotSize = 3.0;
+		private const double EqOmega = 19.0, EqZeta = 0.62;   // spring stiffness / damping: lively, soft overshoot
+		private static readonly double[] EqAmplitude = { 10.0, 15.0, 12.5, 9.0 };
+		private static readonly double[] EqRateA = { 1.15, 1.45, 1.30, 1.00 };   // Hz
+		private static readonly double[] EqRateB = { 2.35, 2.90, 2.55, 2.10 };   // Hz
+		private static readonly double[] EqRateC = { 0.43, 0.37, 0.51, 0.47 };   // Hz, slow level drift
+		private static readonly double[] EqPhase = { 0.0, 1.3, 2.9, 4.4 };
+		private readonly Stopwatch _eqClock = Stopwatch.StartNew();
+		private readonly double[] _eqPos = new double[4], _eqVel = new double[4];
+		private double _eqLastSeconds;
+		private bool _eqPlaying, _eqHooked;
 
 		private void UpdateVisualizer(bool isPlaying)
 		{
-			if (!isPlaying)
-			{
-				Storyboard? wave = this._wave1;
-				if (wave != null)
-				{
-					wave.Stop(this.WaveBar1);
-				}
-				Storyboard? wave2 = this._wave2;
-				if (wave2 != null)
-				{
-					wave2.Stop(this.WaveBar2);
-				}
-				Storyboard? wave3 = this._wave3;
-				if (wave3 != null)
-				{
-					wave3.Stop(this.WaveBar3);
-				}
-				Storyboard? wave4 = this._wave4;
-				if (wave4 != null)
-				{
-					wave4.Stop(this.WaveBar4);
-				}
-				this.WaveBar1.Height = 4.0;
-				this.WaveBar2.Height = 8.0;
-				this.WaveBar3.Height = 4.0;
-				this.WaveBar4.Height = 6.0;
-				return;
-			}
-			Storyboard? wave5 = this._wave1;
-			if (wave5 != null)
-			{
-				wave5.Begin(this.WaveBar1, true);
-			}
-			Storyboard? wave6 = this._wave2;
-			if (wave6 != null)
-			{
-				wave6.Begin(this.WaveBar2, true);
-			}
-			Storyboard? wave7 = this._wave3;
-			if (wave7 != null)
-			{
-				wave7.Begin(this.WaveBar3, true);
-			}
-			Storyboard? wave8 = this._wave4;
-			if (wave8 == null)
-			{
-				return;
-			}
-			wave8.Begin(this.WaveBar4, true);
+			_eqPlaying = isPlaying;
+			EnsureEqualizerAnimating();
 		}
 
-		private void UpdateProgressFill()
+		private bool EqualizerSettled()
 		{
-			if (this.ProgressFillBorder != null && this.ProgressTrackBorder.ActualWidth > 0.0)
+			if (_eqPlaying) return false;
+			for (int i = 0; i < 4; i++)
+				if (Math.Abs(_eqPos[i]) > 0.01 || Math.Abs(_eqVel[i]) > 0.05) return false;
+			return true;
+		}
+
+		private bool ShouldAnimateEqualizer =>
+			this.IsVisible && !_isHiddenByFullscreen &&
+			this.CompactContentGrid.Visibility == Visibility.Visible && !EqualizerSettled();
+
+		private void EnsureEqualizerAnimating()
+		{
+			if (_eqHooked || !ShouldAnimateEqualizer) return;
+			_eqLastSeconds = _eqClock.Elapsed.TotalSeconds;
+			CompositionTarget.Rendering += OnEqualizerRendering;
+			_eqHooked = true;
+		}
+
+		private void OnEqualizerRendering(object? sender, EventArgs e)
+		{
+			if (!ShouldAnimateEqualizer)
 			{
-				double val = this.ProgressTrackBorder.ActualWidth * this._viewModel.ProgressRatio;
-				this.ProgressFillBorder.Width = Math.Max(0.0, val);
+				CompositionTarget.Rendering -= OnEqualizerRendering;
+				_eqHooked = false;
+				return;
+			}
+			double now = _eqClock.Elapsed.TotalSeconds;
+			double dt = Math.Clamp(now - _eqLastSeconds, 0.0, 0.1);
+			_eqLastSeconds = now;
+
+			int steps = Math.Max(1, (int)Math.Ceiling(dt / 0.004)); // small fixed sub-steps keep the spring stable
+			double h = dt / steps;
+			Border[] bars = { this.WaveBar1, this.WaveBar2, this.WaveBar3, this.WaveBar4 };
+			for (int i = 0; i < 4; i++)
+			{
+				double pos = _eqPos[i], vel = _eqVel[i];
+				for (int s = 0; s < steps; s++)
+				{
+					double t = now - dt + h * (s + 1);
+					double target = _eqPlaying ? EqualizerTarget(i, t) : 0.0;
+					double acc = EqOmega * EqOmega * (target - pos) - 2.0 * EqZeta * EqOmega * vel;
+					vel += acc * h;      // semi-implicit Euler
+					pos += vel * h;
+				}
+				if (pos < 0.0) { pos = 0.0; if (vel < 0.0) vel = 0.0; }
+				_eqPos[i] = pos;
+				_eqVel[i] = vel;
+				bars[i].Height = EqDotSize + pos;
 			}
 		}
+
+		// Music-like level in [0.18, 1] x amplitude: two beating sines plus a slow drift, no hard edges.
+		private static double EqualizerTarget(int i, double t)
+		{
+			double w = 0.5 + 0.5 * (0.45 * Math.Sin(2.0 * Math.PI * EqRateA[i] * t + EqPhase[i])
+			                       + 0.35 * Math.Sin(2.0 * Math.PI * EqRateB[i] * t + 1.7 * EqPhase[i])
+			                       + 0.20 * Math.Sin(2.0 * Math.PI * EqRateC[i] * t + 0.6 * EqPhase[i]));
+			return EqAmplitude[i] * (0.18 + 0.82 * w);
+		}
+
+        // Visual tuning: GlowOpacity (0..1), BlurEffect Radius in XAML, HeadGlow Opacity in XAML.
+        // Timeline smoothing comes from WindowsMediaService.ProgressUiIntervalMs, not a width animation.
+        // A WPF Border's CornerRadius does NOT clip its children. The animated
+        // wave fields extend beyond their layout bounds, so a rounded geometry
+        // must explicitly clip the ambient strip at its actual rendered size.
+        private void AmbientGradientLayer_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            UpdateAmbientGradientClip();
+        }
+
+        public void RefreshAppearanceFromSettings()
+        {
+            this.ApplyAppearanceSettings();
+            this.UpdateProgressFill();
+        }
+
+        private void UpdateBackgroundOpacity(bool expanded)
+        {
+            double percentage = expanded ? this._settings.ExpandedBackgroundOpacityPercent
+                                         : this._settings.CompactBackgroundOpacityPercent;
+            double opacity = Math.Clamp(percentage / 100.0, 0.0, 1.0);
+            byte alpha = (byte)Math.Round(255.0 * opacity);
+            this.IslandBorder.Background = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromArgb(alpha, 0x17, 0x18, 0x1C));
+
+            // Keep the drop shadow, but prevent the shadow backing from acting as
+            // a second nearly-opaque layer underneath a transparent island.
+            byte shadowAlpha = (byte)Math.Round(10.0 * opacity);
+            this.ShadowBorder.Background = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromArgb(shadowAlpha, 0x0D, 0x0D, 0x11));
+        }
+
+        private void ApplyAppearanceSettings()
+        {
+            this.UpdateBackgroundOpacity(this._viewModel.IsExpanded);
+
+
+            if (!this._settings.EnableGradient)
+            {
+                this.AmbientGradientLayer.BeginAnimation(UIElement.OpacityProperty, null);
+                this.AmbientGradientLayer.Opacity = 0.0;
+            }
+            else if (this._viewModel.IsExpanded)
+            {
+                this.AnimateAmbientOpacity(true);
+            }
+
+            this.ProgressGlowBorder.Visibility = (!this._settings.EnableProgressGlow || this.ProgressGlowBorder.Width < 1.0)
+                ? Visibility.Hidden
+                : Visibility.Visible;
+        }
+
+
+        private void UpdateAmbientGradientClip()
+        {
+            if (this.AmbientGradientLayer == null) return;
+
+            double width = this.AmbientGradientLayer.ActualWidth;
+            double height = this.AmbientGradientLayer.ActualHeight;
+            if (width <= 0 || height <= 0) return;
+
+            // Both top corners are fully transparent under the opacity mask;
+            // bottom corners follow the expanded/compact card's rounded edge.
+            double radius = this._viewModel.IsExpanded ? 20.0 : 17.0;
+            radius = Math.Min(radius, Math.Min(width, height) / 2.0);
+            this.AmbientGradientLayer.Clip = new RectangleGeometry(
+                new Rect(0, 0, width, height), radius, radius);
+        }
+
+        private void UpdateProgressFill()
+        {
+            if (this.ProgressTrackBorder == null || this.ProgressTrackBorder.ActualWidth <= 0.0)
+                return;
+
+            double width = Math.Clamp(this.ProgressTrackBorder.ActualWidth * this._viewModel.ProgressRatio,
+                                      0.0, this.ProgressTrackBorder.ActualWidth);
+            if (_isScrubbing || _committingScrub) width = this.ProgressTrackBorder.ActualWidth * _scrubRatio;
+            this.ProgressFillBorder.Width = width;
+            this.ProgressGlowBorder.Width = width;
+            this.ProgressGlowBorder.Visibility = (!this._settings.EnableProgressGlow || width < 1.0)
+                ? Visibility.Hidden
+                : Visibility.Visible;
+        }
+
+        // Only show the ambient color when expanded. Fade it in/out while the island morphs.
+        private void AnimateAmbientOpacity(bool expanded)
+        {
+            var animation = new DoubleAnimation
+            {
+                To = (expanded && this._settings.EnableGradient) ? 0.82 : 0.0,
+                Duration = TimeSpan.FromMilliseconds(expanded ? 350 : 160),
+                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
+                FillBehavior = FillBehavior.HoldEnd
+            };
+            this.AmbientGradientLayer.BeginAnimation(UIElement.OpacityProperty, animation,
+                HandoffBehavior.SnapshotAndReplace);
+            if (expanded) this.EnsureGlowAnimating(); // collapse: the handler unhooks once faded out
+        }
+
+        // AMBIENT GLOW - soft drifting colour mesh (Rendering/AmbientGlowRenderer).
+        // Rendered at device resolution and dithered; driven by CompositionTarget.Rendering
+        // only while the expanded gradient is actually on screen.
+        private readonly AmbientGlowRenderer _glowRenderer = new AmbientGlowRenderer();
+        private readonly Stopwatch _glowClock = new Stopwatch();
+        private bool _glowHooked;
+        private TimeSpan _lastGlowRenderingTime = TimeSpan.MinValue;
+        private (int W, int H) _pendingGlowSize;
+        private int _pendingGlowFrames;
+
+        private void StartAmbientGradient()
+        {
+            _glowClock.Restart();
+            EnsureGlowAnimating();
+        }
+
+        private bool ShouldAnimateGlow =>
+            _settings.EnableGradient && this.IsVisible && !_isHiddenByFullscreen &&
+            (_viewModel.IsExpanded || this.AmbientGradientLayer.Opacity > 0.001);
+
+        private void EnsureGlowAnimating()
+        {
+            if (_glowHooked || !ShouldAnimateGlow) return;
+            CompositionTarget.Rendering += OnGlowRendering;
+            _glowHooked = true;
+        }
+
+        private void StopGlowAnimating()
+        {
+            if (!_glowHooked) return;
+            CompositionTarget.Rendering -= OnGlowRendering;
+            _glowHooked = false;
+        }
+
+        private void OnGlowRendering(object? sender, EventArgs e)
+        {
+            if (!ShouldAnimateGlow)
+            {
+                StopGlowAnimating(); // collapsed and faded out, hidden, fullscreen or disabled
+                return;
+            }
+            // One render per composed frame (Rendering can fire more than once per frame). No fps cap:
+            // a cap that is not a divisor of the refresh rate judders (75 Hz -> 37.5 fps); cost is ~0.5 ms.
+            TimeSpan renderingTime = ((RenderingEventArgs)e).RenderingTime;
+            if (renderingTime == _lastGlowRenderingTime) return;
+            _lastGlowRenderingTime = renderingTime;
+            if (!EnsureGlowBitmap()) return;
+            _glowRenderer.Render(_glowClock.Elapsed.TotalSeconds);
+        }
+
+        // Bitmap matches the layer's device-pixel size so it is never resampled (resampling blurs the dither).
+        // While the island morphs, the size changes every frame: keep stretching the current bitmap
+        // (the layer is still fading in) and rebuild only once the size has held for 3 frames.
+        private bool EnsureGlowBitmap()
+        {
+            double w = this.AmbientGradientLayer.ActualWidth, h = this.AmbientGradientLayer.ActualHeight;
+            if (w < 1 || h < 1) return false;
+            DpiScale dpi = VisualTreeHelper.GetDpi(this.AmbientGradientLayer);
+            int pw = (int)Math.Ceiling(w * dpi.DpiScaleX), ph = (int)Math.Ceiling(h * dpi.DpiScaleY);
+            var current = _glowRenderer.Bitmap;
+            if (current != null && (current.PixelWidth != pw || current.PixelHeight != ph))
+            {
+                if (_pendingGlowSize != (pw, ph)) { _pendingGlowSize = (pw, ph); _pendingGlowFrames = 0; }
+                if (++_pendingGlowFrames < 3) return true;
+            }
+            if (_glowRenderer.EnsureSize(pw, ph, dpi.DpiScaleX, dpi.DpiScaleY))
+                this.AmbientWaveImage.Source = _glowRenderer.Bitmap;
+            return true;
+        }
 
 		private void IslandHitBox_MouseEnter(object sender, MouseEventArgs e)
 		{
@@ -916,11 +857,19 @@ namespace DynamicIslandMedia
 
 		private void IslandHitBox_MouseLeave(object sender, MouseEventArgs e)
 		{
+            if (_isScrubbing) return;
 			this._viewModel.OnMouseLeaveIsland();
 		}
 
 		private void IslandHitBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
 		{
+            // Scrubbing temporarily blocks window dragging without changing saved Pin state.
+            if (_isScrubbing || ProgressScrubArea.IsMouseCaptureWithin ||
+                IsDescendantOf(e.OriginalSource as DependencyObject, ProgressScrubArea))
+            {
+                e.Handled = true;
+                return;
+            }
 			if (!this._viewModel.IsExpanded)
 			{
 				this._viewModel.IsExpanded = true;
@@ -952,15 +901,96 @@ namespace DynamicIslandMedia
 			e.Handled = true;
 		}
 
-		private async void ProgressBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-		{
-			if (this.ProgressTrackBorder != null && this.ProgressTrackBorder.ActualWidth > 0.0)
-			{
-				Point pos = e.GetPosition(this.ProgressTrackBorder);
-				double ratio = Math.Clamp(pos.X / this.ProgressTrackBorder.ActualWidth, 0.0, 1.0);
-				await this._viewModel.SeekToRatioAsync(ratio);
-			}
-		}
+        // Scrubbing is a temporary interaction lock; it never modifies IsPinned or settings.json.
+        private bool _isScrubbing;
+        private bool _committingScrub;
+        private double _scrubRatio;
+        private double _scrubOriginalRatio;
+
+        private static bool IsDescendantOf(DependencyObject? child, DependencyObject ancestor)
+        {
+            while (child != null)
+            {
+                if (ReferenceEquals(child, ancestor)) return true;
+                child = VisualTreeHelper.GetParent(child);
+            }
+            return false;
+        }
+
+        private double RatioFromMouse(MouseEventArgs e)
+        {
+            if (this.ProgressTrackBorder.ActualWidth <= 0) return 0;
+            Point point = e.GetPosition(this.ProgressTrackBorder);
+            return Math.Clamp(point.X / this.ProgressTrackBorder.ActualWidth, 0.0, 1.0);
+        }
+
+        private void ProgressScrubArea_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (this.ProgressTrackBorder.ActualWidth <= 0 ||
+                this._viewModel.CurrentMedia.Duration <= TimeSpan.Zero || _committingScrub)
+                return;
+
+            this._viewModel.CancelCollapseTimer();
+            _scrubOriginalRatio = _viewModel.ProgressRatio;
+            _scrubRatio = RatioFromMouse(e);
+            _isScrubbing = true;
+            ProgressScrubArea.CaptureMouse();
+            UpdateProgressFill();
+            e.Handled = true; // prevent the bubbling handler from invoking DragMove()
+        }
+
+        private void ProgressScrubArea_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_isScrubbing) return;
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                CancelScrub();
+                return;
+            }
+            _scrubRatio = RatioFromMouse(e);
+            UpdateProgressFill();
+            e.Handled = true;
+        }
+
+        private async void ProgressScrubArea_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_isScrubbing) return;
+            _scrubRatio = RatioFromMouse(e);
+            double target = _scrubRatio;
+            _isScrubbing = false;
+            _committingScrub = true;
+            // Release capture before awaiting the media service. Prevent a LostCapture cancellation.
+            if (ProgressScrubArea.IsMouseCaptured) ProgressScrubArea.ReleaseMouseCapture();
+            e.Handled = true;
+            try
+            {
+                await _viewModel.SeekToRatioAsync(target);
+            }
+            finally
+            {
+                _committingScrub = false;
+                UpdateProgressFill();
+                // If released outside, a captured mouse may have suppressed MouseLeave.
+                if (!this.IslandHitBox.IsMouseOver)
+                    this._viewModel.OnMouseLeaveIsland();
+            }
+        }
+
+        private void ProgressScrubArea_LostMouseCapture(object sender, MouseEventArgs e)
+        {
+            if (_isScrubbing) CancelScrub();
+        }
+
+        private void CancelScrub()
+        {
+            if (!_isScrubbing) return;
+            _isScrubbing = false;
+            _scrubRatio = _scrubOriginalRatio;
+            if (ProgressScrubArea.IsMouseCaptured) ProgressScrubArea.ReleaseMouseCapture();
+            UpdateProgressFill();
+            if (!this.IslandHitBox.IsMouseOver)
+                this._viewModel.OnMouseLeaveIsland();
+        }
 
 		private readonly MainViewModel _viewModel;
 		private readonly AppSettings _settings;
@@ -968,10 +998,6 @@ namespace DynamicIslandMedia
 		private bool _isHiddenByFullscreen;
 		private bool _hasCustomPosition;
 		private bool _isExpandingDownwards;
-		private Storyboard? _wave1;
-		private Storyboard? _wave2;
-		private Storyboard? _wave3;
-		private Storyboard? _wave4;
 
 		private const int GWL_EXSTYLE = -20;
 		private const int WS_EX_TOOLWINDOW = 128;

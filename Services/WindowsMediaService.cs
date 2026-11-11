@@ -17,7 +17,23 @@ namespace DynamicIslandMedia.Services
         private GlobalSystemMediaTransportControlsSession? _currentSession;
         private readonly SemaphoreSlim _updateLock = new(1, 1);
         private readonly DispatcherTimer _timelineTimer;
+        private readonly DispatcherTimer _sessionCheckTimer;
+        private const int PausedSwitchDelayMs = 2000;
+        private const int SessionCheckIntervalMs = 500;
+        private long? _pausedAtTimestamp;
+        private bool _checkingSessions;
         private bool _disposed;
+        // UI smoothing: 40ms ~ 25 updates/sec; 33ms ~ 30; 16ms ~ 60.
+        // This only refreshes the local display and does NOT poll Windows media 25 times/sec.
+        private const int ProgressUiIntervalMs = 40;
+        private TimeSpan _timelineAnchorPosition = TimeSpan.Zero;
+        private long _timelineAnchorTimestamp = Stopwatch.GetTimestamp();
+
+        private void ResetTimelineAnchor(TimeSpan position)
+        {
+            _timelineAnchorPosition = position;
+            _timelineAnchorTimestamp = Stopwatch.GetTimestamp();
+        }
 
         public event EventHandler<MediaPlaybackInfo>? MediaChanged;
         public event EventHandler<TimeSpan>? TimelineUpdated;
@@ -28,9 +44,13 @@ namespace DynamicIslandMedia.Services
         {
             _timelineTimer = new DispatcherTimer
             {
-                Interval = TimeSpan.FromSeconds(1)
+                Interval = TimeSpan.FromMilliseconds(ProgressUiIntervalMs)
             };
             _timelineTimer.Tick += OnTimelineTimerTick;
+
+            // Session selection is deliberately independent from the 40ms UI progress timer.
+            _sessionCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(SessionCheckIntervalMs) };
+            _sessionCheckTimer.Tick += OnSessionCheckTick;
         }
 
         public async Task InitializeAsync()
@@ -43,6 +63,7 @@ namespace DynamicIslandMedia.Services
                     _sessionManager.CurrentSessionChanged += OnCurrentSessionChanged;
                     _sessionManager.SessionsChanged += OnSessionsChanged;
                     await UpdateCurrentSessionAsync(GetBestSession(_sessionManager));
+                    _sessionCheckTimer.Start();
                 }
             }
             catch (Exception ex)
@@ -51,29 +72,42 @@ namespace DynamicIslandMedia.Services
             }
         }
 
+        private static bool IsPlayingSession(GlobalSystemMediaTransportControlsSession session)
+        {
+            try
+            {
+                return session.GetPlaybackInfo()?.PlaybackStatus ==
+                    GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+            }
+            catch { return false; }
+        }
+
+        private static bool IsClosedSession(GlobalSystemMediaTransportControlsSession session)
+        {
+            try
+            {
+                var status = session.GetPlaybackInfo()?.PlaybackStatus;
+                return status == null || status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed;
+            }
+            catch { return true; }
+        }
+
         private GlobalSystemMediaTransportControlsSession? GetBestSession(GlobalSystemMediaTransportControlsSessionManager? manager)
         {
             if (manager == null) return null;
             try
             {
-                var current = manager.GetCurrentSession();
-                if (current != null) return current;
-
                 var sessions = manager.GetSessions();
-                if (sessions != null && sessions.Count > 0)
-                {
-                    // Prioritize playing session if any
-                    foreach (var s in sessions)
-                    {
-                        var info = s.GetPlaybackInfo();
-                        if (info?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
-                        {
-                            return s;
-                        }
-                    }
-                    // Otherwise return first available session (e.g. paused)
-                    return sessions[0];
-                }
+                var current = manager.GetCurrentSession();
+                // Sticky selection: a playing selection is never displaced by a new session.
+                if (_currentSession != null && !IsClosedSession(_currentSession))
+                    return _currentSession;
+                // Initial selection: prefer an active player, otherwise Windows' current session.
+                foreach (var session in sessions)
+                    if (IsPlayingSession(session)) return session;
+                if (current != null && !IsClosedSession(current)) return current;
+                foreach (var session in sessions)
+                    if (!IsClosedSession(session)) return session;
             }
             catch (Exception ex)
             {
@@ -82,12 +116,58 @@ namespace DynamicIslandMedia.Services
             return null;
         }
 
-        private async void OnCurrentSessionChanged(GlobalSystemMediaTransportControlsSessionManager sender, CurrentSessionChangedEventArgs args)
+        // Keep the currently selected session during a short pause, then switch only
+        // when another session is actually playing. No fallback means stay paused.
+        private async void OnSessionCheckTick(object? sender, EventArgs e)
+        {
+            if (_disposed || _checkingSessions || _sessionManager == null) return;
+            _checkingSessions = true;
+            try
+            {
+                var selected = _currentSession;
+                if (selected == null || IsClosedSession(selected))
+                {
+                    _pausedAtTimestamp = null;
+                    var replacement = GetBestSession(_sessionManager);
+                    if (!ReferenceEquals(selected, replacement))
+                        await UpdateCurrentSessionAsync(replacement);
+                    return;
+                }
+
+                if (IsPlayingSession(selected))
+                {
+                    _pausedAtTimestamp = null;
+                    return;
+                }
+
+                long now = Stopwatch.GetTimestamp();
+                _pausedAtTimestamp ??= now;
+                double pausedMs = (now - _pausedAtTimestamp.Value) * 1000.0 / Stopwatch.Frequency;
+                if (pausedMs < PausedSwitchDelayMs) return;
+
+                foreach (var candidate in _sessionManager.GetSessions())
+                {
+                    if (ReferenceEquals(candidate, selected) || !IsPlayingSession(candidate)) continue;
+                    _pausedAtTimestamp = null;
+                    await UpdateCurrentSessionAsync(candidate);
+                    return;
+                }
+                // Preserve the current paused session if there is nothing playing.
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WindowsMediaService] Session check error: {ex.Message}");
+            }
+            finally { _checkingSessions = false; }
+        }
+
+        private void OnCurrentSessionChanged(GlobalSystemMediaTransportControlsSessionManager sender, CurrentSessionChangedEventArgs args)
         {
             try
             {
-                var session = GetBestSession(sender);
-                await UpdateCurrentSessionAsync(session);
+                // Never steal focus from a playing session; honor the 2-second pause grace period.
+                System.Windows.Application.Current.Dispatcher.BeginInvoke(
+                    new Action(() => OnSessionCheckTick(null, EventArgs.Empty)));
             }
             catch (Exception ex)
             {
@@ -95,12 +175,13 @@ namespace DynamicIslandMedia.Services
             }
         }
 
-        private async void OnSessionsChanged(GlobalSystemMediaTransportControlsSessionManager sender, SessionsChangedEventArgs args)
+        private void OnSessionsChanged(GlobalSystemMediaTransportControlsSessionManager sender, SessionsChangedEventArgs args)
         {
             try
             {
-                var session = GetBestSession(sender);
-                await UpdateCurrentSessionAsync(session);
+                // Never steal focus from a playing session; honor the 2-second pause grace period.
+                System.Windows.Application.Current.Dispatcher.BeginInvoke(
+                    new Action(() => OnSessionCheckTick(null, EventArgs.Empty)));
             }
             catch (Exception ex)
             {
@@ -121,13 +202,13 @@ namespace DynamicIslandMedia.Services
                 }
 
                 _currentSession = newSession;
+                _pausedAtTimestamp = null;
 
                 if (_currentSession != null)
                 {
                     _currentSession.PlaybackInfoChanged += OnPlaybackInfoChanged;
                     _currentSession.MediaPropertiesChanged += OnMediaPropertiesChanged;
                     _currentSession.TimelinePropertiesChanged += OnTimelinePropertiesChanged;
-                    await RefreshMediaAsync();
                 }
                 else
                 {
@@ -140,26 +221,35 @@ namespace DynamicIslandMedia.Services
             {
                 _updateLock.Release();
             }
+            // Never refresh while holding _updateLock: RefreshMediaAsync may
+            // need to switch sessions when a provider closes unexpectedly.
+            if (!_disposed && ReferenceEquals(_currentSession, newSession) && newSession != null)
+                await RefreshMediaAsync();
         }
 
         private async void OnPlaybackInfoChanged(GlobalSystemMediaTransportControlsSession sender, PlaybackInfoChangedEventArgs args)
         {
-            await RefreshMediaAsync();
+            if (!ReferenceEquals(sender, _currentSession)) return;
+            try { await RefreshMediaAsync(); }
+            catch (Exception ex) { Debug.WriteLine($"[WindowsMediaService] Playback event: {ex.Message}"); }
         }
 
         private async void OnMediaPropertiesChanged(GlobalSystemMediaTransportControlsSession sender, MediaPropertiesChangedEventArgs args)
         {
-            await RefreshMediaAsync();
+            if (!ReferenceEquals(sender, _currentSession)) return;
+            try { await RefreshMediaAsync(); }
+            catch (Exception ex) { Debug.WriteLine($"[WindowsMediaService] Media event: {ex.Message}"); }
         }
 
         private void OnTimelinePropertiesChanged(GlobalSystemMediaTransportControlsSession sender, TimelinePropertiesChangedEventArgs args)
         {
-            SyncTimeline();
+            if (ReferenceEquals(sender, _currentSession)) SyncTimeline();
         }
 
         public async Task RefreshMediaAsync()
         {
-            if (_currentSession == null)
+            var session = _currentSession;
+            if (session == null)
             {
                 CurrentMedia = new MediaPlaybackInfo { HasActiveSession = false };
                 MediaChanged?.Invoke(this, CurrentMedia);
@@ -168,9 +258,10 @@ namespace DynamicIslandMedia.Services
 
             try
             {
-                var playbackInfo = _currentSession.GetPlaybackInfo();
-                var mediaProps = await _currentSession.TryGetMediaPropertiesAsync();
-                var timeline = _currentSession.GetTimelineProperties();
+                var playbackInfo = session.GetPlaybackInfo();
+                var mediaProps = await session.TryGetMediaPropertiesAsync();
+                if (_disposed || !ReferenceEquals(session, _currentSession)) return;
+                var timeline = session.GetTimelineProperties();
 
                 // If session is closed, check for other active sessions
                 if (playbackInfo == null || playbackInfo.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed)
@@ -178,7 +269,7 @@ namespace DynamicIslandMedia.Services
                     if (_sessionManager != null)
                     {
                         var altSession = GetBestSession(_sessionManager);
-                        if (altSession != null && altSession != _currentSession)
+                        if (altSession != null && !ReferenceEquals(altSession, session))
                         {
                             await UpdateCurrentSessionAsync(altSession);
                             return;
@@ -192,6 +283,10 @@ namespace DynamicIslandMedia.Services
                 }
 
                 var isPlaying = playbackInfo.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                // Record the pause as soon as Windows reports it, rather than waiting
+                // for the next 500ms selection poll. Keep the timestamp if still paused.
+                if (isPlaying) _pausedAtTimestamp = null;
+                else _pausedAtTimestamp ??= Stopwatch.GetTimestamp();
 
                 var info = new MediaPlaybackInfo
                 {
@@ -199,7 +294,7 @@ namespace DynamicIslandMedia.Services
                     Title = mediaProps?.Title ?? string.Empty,
                     Artist = mediaProps?.Artist ?? string.Empty,
                     AlbumTitle = mediaProps?.AlbumTitle ?? string.Empty,
-                    SourceAppId = _currentSession.SourceAppUserModelId ?? string.Empty,
+                    SourceAppId = session.SourceAppUserModelId ?? string.Empty,
                     IsPlaying = isPlaying,
                     PlaybackStatus = playbackInfo.PlaybackStatus,
                     Position = timeline?.Position ?? TimeSpan.Zero,
@@ -245,7 +340,9 @@ namespace DynamicIslandMedia.Services
                 info.PrimaryColor = c1;
                 info.SecondaryColor = c2;
 
+                if (_disposed || !ReferenceEquals(session, _currentSession)) return;
                 CurrentMedia = info;
+                ResetTimelineAnchor(info.Position);
 
                 if (isPlaying)
                 {
@@ -275,6 +372,7 @@ namespace DynamicIslandMedia.Services
                 if (timeline != null)
                 {
                     CurrentMedia.Position = timeline.Position;
+                    ResetTimelineAnchor(CurrentMedia.Position);
                     if (timeline.EndTime > timeline.StartTime)
                     {
                         CurrentMedia.Duration = timeline.EndTime - timeline.StartTime;
@@ -290,15 +388,14 @@ namespace DynamicIslandMedia.Services
 
         private void OnTimelineTimerTick(object? sender, EventArgs e)
         {
-            if (CurrentMedia.IsPlaying && CurrentMedia.Duration > TimeSpan.Zero)
-            {
-                var newPos = CurrentMedia.Position.Add(TimeSpan.FromSeconds(1));
-                if (newPos <= CurrentMedia.Duration)
-                {
-                    CurrentMedia.Position = newPos;
-                    TimelineUpdated?.Invoke(this, newPos);
-                }
-            }
+            if (!CurrentMedia.IsPlaying || CurrentMedia.Duration <= TimeSpan.Zero)
+                return;
+
+            var elapsedSeconds = (Stopwatch.GetTimestamp() - _timelineAnchorTimestamp)
+                                 / (double)Stopwatch.Frequency;
+            var target = _timelineAnchorPosition + TimeSpan.FromSeconds(Math.Max(0, elapsedSeconds));
+            CurrentMedia.Position = target > CurrentMedia.Duration ? CurrentMedia.Duration : target;
+            TimelineUpdated?.Invoke(this, CurrentMedia.Position);
         }
 
         public async Task TogglePlayPauseAsync()
@@ -360,6 +457,7 @@ namespace DynamicIslandMedia.Services
             {
                 await _currentSession.TryChangePlaybackPositionAsync(position.Ticks);
                 CurrentMedia.Position = position;
+                ResetTimelineAnchor(position);
                 TimelineUpdated?.Invoke(this, position);
             }
             catch (Exception ex)
@@ -374,6 +472,7 @@ namespace DynamicIslandMedia.Services
             _disposed = true;
 
             _timelineTimer.Stop();
+            _sessionCheckTimer.Stop();
 
             if (_currentSession != null)
             {
